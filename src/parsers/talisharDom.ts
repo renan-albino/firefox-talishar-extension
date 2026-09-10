@@ -113,19 +113,60 @@ export function parseCombatLogs(doc: Document): string[] {
   if (!chatBox) return logs;
 
   // Select message and turn divider elements
-  const elements = chatBox.querySelectorAll(
-    '[class*="turnDivider"], [class*="TurnDivider"], div > div, p, [class*="combatGroup"]'
-  );
-
-  elements.forEach((el) => {
-    // Only capture direct leaf or meaningful log lines
-    if (el.children.length === 0 || el.classList.toString().toLowerCase().includes('turndivider')) {
-      const text = el.textContent?.trim();
-      if (text && !logs.includes(text)) {
-        logs.push(text);
+  const elements = Array.from(
+    chatBox.querySelectorAll<HTMLElement>(
+      '[class*="chatMessage"], [class*="chatMobileMessage"], [class*="turnDivider"], [class*="TurnDivider"], [class*="combatGroupLabel"]'
+    )
+  ).filter((el) => {
+    const className = el.className || '';
+    if (typeof className === 'string') {
+      // Exclude sub-spans of turnDivider to prevent duplicate partial lines
+      if (
+        className.includes('turnDividerLabel') ||
+        className.includes('turnDividerPlayer') ||
+        className.includes('TurnDividerLabel') ||
+        className.includes('TurnDividerPlayer')
+      ) {
+        return false;
       }
     }
+    return true;
   });
+
+  if (elements.length > 0) {
+    elements.forEach((el) => {
+      const className = el.className || '';
+      let text = '';
+      if (
+        typeof className === 'string' &&
+        (className.includes('turnDivider') || className.includes('TurnDivider'))
+      ) {
+        const label = el.querySelector('[class*="turnDividerLabel"], [class*="TurnDividerLabel"]')?.textContent?.trim();
+        const player = el.querySelector('[class*="turnDividerPlayer"], [class*="TurnDividerPlayer"]')?.textContent?.trim();
+        if (label && player) {
+          text = `${label} - ${player}`;
+        } else {
+          text = el.textContent?.replace(/\s+/g, ' ').trim() || '';
+        }
+      } else {
+        text = el.textContent?.replace(/\s+/g, ' ').trim() || '';
+      }
+
+      if (text.length > 0) {
+        logs.push(text);
+      }
+    });
+  } else {
+    // Fallback: search leaf message divs if CSS modules classes are obscured
+    const fallbackEls = chatBox.querySelectorAll('div > div');
+    fallbackEls.forEach((el) => {
+      if (el.querySelectorAll('div').length > 0) return;
+      const text = el.textContent?.replace(/\s+/g, ' ').trim();
+      if (text && text.length > 0) {
+        logs.push(text);
+      }
+    });
+  }
 
   return logs;
 }

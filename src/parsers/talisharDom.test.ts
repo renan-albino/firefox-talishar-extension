@@ -54,25 +54,67 @@ describe('talisharDom parser', () => {
     expect(heroes.opponentHero).toBe('Dorinthea Ironsong');
   });
 
-  it('should extract combat logs from chatBox', () => {
+  it('should extract combat logs including nested cards played, blocks, and pitches', () => {
     const doc = document.implementation.createHTMLDocument();
     doc.body.innerHTML = `
       <div class="ChatBox_chatBox__xyz">
         <div class="chatContent">
-          <div class="TurnDivider">Turn 1</div>
-          <div>Player 1 played Wild Ride</div>
-          <div>Player 2 defended with 3</div>
-          <div class="TurnDivider">Turn 2</div>
-          <div>Player 2 played Dawnblade</div>
+          <div class="ChatBox_turnDivider__111">Turn 1</div>
+          <div class="ChatBox_chatMessage__222">
+            <b>akiles185</b> pitched <span class="card">Wild Ride</span>
+          </div>
+          <div class="ChatBox_chatMessage__333">
+            <b>akiles185</b> played <span class="card">Savage Feast (1)</span> for 6
+          </div>
+          <div class="ChatBox_chatMessage__444">
+            <b>NateFrautschy</b> defended with <span class="card">Ironrot Gauntlet</span> for 1
+          </div>
+          <div class="ChatBox_turnDivider__111">Turn 2</div>
+          <div class="ChatBox_chatMessage__555">
+            <b>NateFrautschy</b> played <span class="card">Dawnblade</span>
+          </div>
         </div>
       </div>
     `;
 
     const logs = parseCombatLogs(doc);
-    expect(logs).toHaveLength(5);
+    expect(logs).toHaveLength(6);
     expect(logs[0]).toBe('Turn 1');
-    expect(logs[1]).toBe('Player 1 played Wild Ride');
-    expect(logs[4]).toBe('Player 2 played Dawnblade');
+    expect(logs[1]).toContain('akiles185 pitched Wild Ride');
+    expect(logs[2]).toContain('akiles185 played Savage Feast (1) for 6');
+    expect(logs[3]).toContain('NateFrautschy defended with Ironrot Gauntlet for 1');
+    expect(logs[4]).toBe('Turn 2');
+    expect(logs[5]).toContain('NateFrautschy played Dawnblade');
+  });
+
+  it('should format turnDivider with label and player spans and retain repeated events across turns', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="ChatBox_chatBox__xyz">
+        <div class="ChatBox_turnDivider__111">
+          <span class="ChatBox_turnDividerLabel__222">Turn 1</span>
+          <span class="ChatBox_turnDividerPlayer__333">akiles185</span>
+        </div>
+        <div class="ChatBox_chatMessage__444">
+          The combat chain was closed.
+        </div>
+        <div class="ChatBox_turnDivider__111">
+          <span class="ChatBox_turnDividerLabel__222">Turn 2</span>
+          <span class="ChatBox_turnDividerPlayer__333">NateFrautschy</span>
+        </div>
+        <div class="ChatBox_chatMessage__444">
+          The combat chain was closed.
+        </div>
+      </div>
+    `;
+
+    const logs = parseCombatLogs(doc);
+    expect(logs).toEqual([
+      'Turn 1 - akiles185',
+      'The combat chain was closed.',
+      'Turn 2 - NateFrautschy',
+      'The combat chain was closed.',
+    ]);
   });
 
   it('should extract Average Turn Value and End Game Result', () => {

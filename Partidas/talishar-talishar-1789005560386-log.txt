@@ -1,0 +1,28 @@
+=== PARTIDA TALISHAR: Marlynn Treasure Hunter vs Levia Shadowborn Abomination ===
+Data: 2026-09-10T01:59:20.386Z
+Resultado: Vitoria
+Turnos: 4
+Meu Valor Medio/Turno: 14,25
+Valor Medio/Turno Oponente: -
+Sideboard / Cartas Fora: -
+Notas: Levia subiu muitas dreact o que foi bem estranho, mas ela ainda tem problemas de action point
+
+--- LOG COMPLETO ---
+Ability was chosen.
+Chain Link 1
+The combat chain was closed.
+Turn 1akiles185
+Turn 1
+akiles185
+🏹 Your arsenal is full, you cannot load an arrow
+Turn 1NateFrautschy
+NateFrautschy
+Turn 2akiles185
+Turn 2
+Turn 2NateFrautschy
+Turn 3akiles185
+Turn 3
+Turn 3NateFrautschy
+Turn 4akiles185
+Turn 4
+Turn 4NateFrautschy

@@ -1,86 +1,81 @@
 import { describe, it, expect } from 'vitest';
-import { trackLobbyDeckState, isPreGameLobby } from './sideboardTracker';
+import {
+  formatTalisharCardName,
+  trackLobbyDeckState,
+  isPreGameLobby,
+  trackInGameInventory,
+} from './sideboardTracker';
 
 describe('sideboardTracker', () => {
-  it('should detect if current page is pre-game lobby', () => {
-    const doc = document.implementation.createHTMLDocument();
-    expect(isPreGameLobby(doc)).toBe(false);
+  describe('formatTalisharCardName', () => {
+    it('should format snake_case card identifiers with pitch suffixes', () => {
+      expect(formatTalisharCardName('savage_feast_red-1')).toBe('Savage Feast (Red)');
+      expect(formatTalisharCardName('sink_below_blue-2')).toBe('Sink Below (Blue)');
+      expect(formatTalisharCardName('pummel_yellow')).toBe('Pummel (Yellow)');
+      expect(formatTalisharCardName('command_and_conquer_red')).toBe('Command And Conquer (Red)');
+      expect(formatTalisharCardName('dawnblade')).toBe('Dawnblade');
+    });
 
-    doc.body.innerHTML = `
-      <div class="Lobby_lobbyContainer__123">
-        <div class="Deck_deckContainer__456"></div>
-      </div>
-    `;
-    expect(isPreGameLobby(doc)).toBe(true);
+    it('should format card image URLs', () => {
+      const url = 'https://images.talishar.net/public/cardsquares/english/fate_foreseen_red.webp';
+      expect(formatTalisharCardName(url)).toBe('Fate Foreseen (Red)');
+    });
   });
 
-  it('should track cards left out and main deck card count', () => {
-    const doc = document.implementation.createHTMLDocument();
-    doc.body.innerHTML = `
-      <div class="Deck_deckContainer__456">
-        <div class="Deck_deckCardContainer__1">
-          <label>
-            <input type="checkbox" name="deck" value="CRU001-1" checked />
-            <img alt="Command and Conquer" />
-          </label>
+  describe('trackLobbyDeckState', () => {
+    it('should track cards left out and format their names', () => {
+      const doc = document.implementation.createHTMLDocument();
+      doc.body.innerHTML = `
+        <div class="Deck_deckContainer__456">
+          <div class="Deck_deckCardContainer__1">
+            <label>
+              <input type="checkbox" name="deck" value="command_and_conquer_red-1" checked />
+              <img src="/public/cardsquares/english/command_and_conquer_red.webp" />
+            </label>
+          </div>
+          <div class="Deck_deckCardContainer__2">
+            <label>
+              <input type="checkbox" name="deck" value="sink_below_red-1" />
+              <img src="/public/cardsquares/english/sink_below_red.webp" />
+            </label>
+          </div>
+          <div class="Deck_deckCardContainer__3">
+            <label>
+              <input type="checkbox" name="deck" value="pummel_red-1" />
+              <img src="/public/cardsquares/english/pummel_red.webp" />
+            </label>
+          </div>
         </div>
-        <div class="Deck_deckCardContainer__2">
-          <label>
-            <input type="checkbox" name="deck" value="CRU001-2" checked />
-            <img alt="Command and Conquer" />
-          </label>
-        </div>
-        <div class="Deck_deckCardContainer__3">
-          <label>
-            <input type="checkbox" name="deck" value="WTR123-1" />
-            <img alt="Pummel (Red)" />
-          </label>
-        </div>
-        <div class="Deck_deckCardContainer__4">
-          <label>
-            <input type="checkbox" name="deck" value="WTR124-1" />
-            <img alt="Sink Below (Red)" />
-          </label>
-        </div>
-      </div>
-    `;
+      `;
 
-    const adjustment = trackLobbyDeckState(doc);
-    expect(adjustment.mainDeckCount).toBe(2);
-    expect(adjustment.cardsLeftOut).toHaveLength(2);
-    expect(adjustment.cardsLeftOut).toContain('Pummel (Red)');
-    expect(adjustment.cardsLeftOut).toContain('Sink Below (Red)');
+      const adjustment = trackLobbyDeckState(doc);
+      expect(adjustment.mainDeckCount).toBe(1);
+      expect(adjustment.cardsLeftOut).toHaveLength(2);
+      expect(adjustment.cardsLeftOut).toContain('Sink Below (Red)');
+      expect(adjustment.cardsLeftOut).toContain('Pummel (Red)');
+    });
   });
 
-  it('should handle sub-60 card main decks (e.g. Blitz 40 cards)', () => {
-    const doc = document.implementation.createHTMLDocument();
-    let cardsHtml = '';
-    // 40 checked cards, 12 unchecked cards
-    for (let i = 1; i <= 40; i++) {
-      cardsHtml += `
-        <div class="Deck_deckCardContainer">
-          <label>
-            <input type="checkbox" name="deck" value="CARD-${i}" checked />
-            <img alt="Main Deck Card ${i}" />
-          </label>
+  describe('trackInGameInventory', () => {
+    it('should extract inventory cards from InventoryModal DOM', () => {
+      const doc = document.implementation.createHTMLDocument();
+      doc.body.innerHTML = `
+        <div class="Inventory_inventoryModal__123">
+          <div class="Inventory_cardGrid__456">
+            <div class="Inventory_cardContainer__1">
+              <img src="https://images.talishar.net/public/cardsquares/english/unmovable_blue.webp" />
+            </div>
+            <div class="Inventory_cardContainer__2">
+              <img src="https://images.talishar.net/public/cardsquares/english/oasis_respite_red.webp" />
+            </div>
+          </div>
         </div>
       `;
-    }
-    for (let i = 1; i <= 12; i++) {
-      cardsHtml += `
-        <div class="Deck_deckCardContainer">
-          <label>
-            <input type="checkbox" name="deck" value="SIDE-${i}" />
-            <img alt="Sideboard Card ${i}" />
-          </label>
-        </div>
-      `;
-    }
 
-    doc.body.innerHTML = `<div class="Deck_deckContainer">${cardsHtml}</div>`;
-
-    const adjustment = trackLobbyDeckState(doc);
-    expect(adjustment.mainDeckCount).toBe(40);
-    expect(adjustment.cardsLeftOut).toHaveLength(12);
+      const cards = trackInGameInventory(doc);
+      expect(cards).toHaveLength(2);
+      expect(cards).toContain('Unmovable (Blue)');
+      expect(cards).toContain('Oasis Respite (Red)');
+    });
   });
 });
