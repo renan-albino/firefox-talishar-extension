@@ -5,10 +5,19 @@ A persistent configuration mechanism (popup/options) storing the user's Google A
 
 **Blocked by:** 01-project-scaffolding
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Provide `google-apps-script/Code.gs` script with copy-paste instructions for the user's Google Sheet.
-- [ ] Implement `SheetsClient` to serialize and send `MatchRecord` via POST to the configured Webhook URL.
-- [ ] Implement settings storage helper in `src/utils/storage.ts`.
-- [ ] Create extension Popup / Options page with input for the Webhook URL and a "Test Connection" button.
-- [ ] Unit tests for `SheetsClient` payload creation and network response handling.
+- [x] Provide `google-apps-script/Code.gs` script with copy-paste instructions for the user's Google Sheet.
+- [x] Implement `SheetsClient` to serialize and send `MatchRecord` via POST to the configured Webhook URL.
+- [x] Implement settings storage helper in `src/utils/storage.ts`.
+- [x] Create extension Popup / Options page with input for the Webhook URL and a "Test Connection" button.
+- [x] Unit tests for `SheetsClient` payload creation and network response handling.
+
+## Answer
+
+Delivered:
+- `google-apps-script/Code.gs` containing full Webhook receiver code with automatic header creation and PING support.
+- `src/services/sheetsClient.ts` with `sendMatchToSheets` and `testSheetsConnection`.
+- `src/utils/storage.ts` for managing settings and match history using `wxt/storage`.
+- Extension popup UI with Webhook URL input, connection tester, and auto-open preferences.
+- All unit tests passing in Vitest.
