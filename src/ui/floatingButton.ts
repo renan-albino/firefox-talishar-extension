@@ -7,37 +7,38 @@ export function createFloatingButton(onClick: () => void): HTMLElement {
 
   const button = document.createElement('button');
   button.id = 'talishar-log-export-btn';
-  button.innerHTML = `<span>📝</span> <span>Salvar Partida & Notas</span>`;
+  button.innerHTML = `<span style="font-size: 13px; line-height: 1;">📝</span> <span>Salvar Partida & Notas</span>`;
   button.title = 'Abrir notas e exportar estatísticas da partida';
   button.style.cssText = `
     position: fixed;
-    bottom: 24px;
-    right: 24px;
+    top: 12px;
+    right: 20px;
     z-index: 999990;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     background: linear-gradient(135deg, #ff7043, #f4511e);
     color: white;
-    border: none;
-    border-radius: 50px;
-    padding: 12px 20px;
-    font-size: 14px;
-    font-weight: 700;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
     cursor: pointer;
-    box-shadow: 0 4px 16px rgba(244, 81, 30, 0.45);
-    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    user-select: none;
   `;
 
   button.addEventListener('mouseenter', () => {
-    button.style.transform = 'translateY(-2px) scale(1.03)';
-    button.style.boxShadow = '0 6px 20px rgba(244, 81, 30, 0.6)';
+    button.style.transform = 'translateY(-1px) scale(1.02)';
+    button.style.boxShadow = '0 5px 14px rgba(244, 81, 30, 0.55)';
   });
 
   button.addEventListener('mouseleave', () => {
     button.style.transform = 'none';
-    button.style.boxShadow = '0 4px 16px rgba(244, 81, 30, 0.45)';
+    button.style.boxShadow = '0 3px 10px rgba(0, 0, 0, 0.4)';
   });
 
   button.addEventListener('click', onClick);

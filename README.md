@@ -31,7 +31,7 @@ Extensão de navegador para o Firefox desenvolvida com [WXT](https://wxt.dev/) e
 4. Clique em **"Carregar extensão temporária..."** (Load Temporary Add-on...).
 5. Navegue até a pasta do projeto e selecione o arquivo:
    ```text
-   .output/firefox-mv2/manifest.json
+   dist/firefox/manifest.json
    ```
 6. Pronto! O ícone da extensão aparecerá na barra de ferramentas do seu Firefox.
 

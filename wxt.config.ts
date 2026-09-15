@@ -2,6 +2,8 @@ import { defineConfig } from 'wxt';
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
+  outDir: 'dist',
+  outDirTemplate: 'firefox',
   manifest: {
     name: 'Talishar Log Exporter',
     description: 'Capture combat logs from Talishar.net and export to PT-BR Excel CSV or Google Sheets',
