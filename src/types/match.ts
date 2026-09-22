@@ -31,12 +31,19 @@ export interface MatchRecord {
   result: MatchResult;
   turnsCount: number;
   sideboardCards: string[]; // Cards left out or swapped
+  playerEquipment?: string[];
+  opponentEquipment?: string[];
   notes: string;
   rawLogs: string[];
+  format?: string;
+  wentFirst?: boolean;
+  platform?: string;
 }
 
 export interface ExtensionSettings {
   googleSheetsWebhookUrl: string;
   autoOpenNotesModal: boolean;
   exportFormatPreference: 'both' | 'csv' | 'sheets';
+  playerName?: string;
+  googleSpreadsheetUrl?: string;
 }

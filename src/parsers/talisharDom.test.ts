@@ -7,6 +7,8 @@ import {
   parseMatchResult,
   parseTurnCount,
   extractMatchRecordFromDom,
+  parseWentFirst,
+  parseEquipment,
 } from './talisharDom';
 
 describe('talisharDom parser', () => {
@@ -81,7 +83,7 @@ describe('talisharDom parser', () => {
     expect(logs).toHaveLength(6);
     expect(logs[0]).toBe('Turn 1');
     expect(logs[1]).toContain('akiles185 pitched Wild Ride');
-    expect(logs[2]).toContain('akiles185 played Savage Feast (1) for 6');
+    expect(logs[2]).toContain('akiles185 played Savage Feast (1 - Vermelha) for 6');
     expect(logs[3]).toContain('NateFrautschy defended with Ironrot Gauntlet for 1');
     expect(logs[4]).toBe('Turn 2');
     expect(logs[5]).toContain('NateFrautschy played Dawnblade');
@@ -198,5 +200,99 @@ describe('talisharDom parser', () => {
     expect(record.opponent?.hero).toBe('Dorinthea');
     expect(record.result).toBe('win');
     expect(record.player?.avgTurnValue).toBe(13.5);
+    expect(record.format).toBe('CC');
+    expect(record.platform).toBe('Talishar');
+  });
+
+  it('should parse whether the player went first from logs', () => {
+    const logsPlayerFirst = ['Turn 1 - Renan', 'Turn 1 - Opponent', 'Turn 2 - Renan'];
+    expect(parseWentFirst(logsPlayerFirst, 'Renan', 'Opponent')).toBe(true);
+
+    const logsOpponentFirst = ['Turn 1 - Opponent', 'Turn 1 - Renan', 'Turn 2 - Opponent'];
+    expect(parseWentFirst(logsOpponentFirst, 'Renan', 'Opponent')).toBe(false);
+
+    expect(parseWentFirst([], 'Renan', 'Opponent')).toBeUndefined();
+  });
+
+  it('should parse opponent average turn value when opponent tab is active with hashed CSS classes', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="tabs">
+        <button class="tab selected active">OpponentPlayer</button>
+      </div>
+      <div class="_infoRow_1fs3u_100">
+        <span class="_infoLabel_1fs3u_120">Avg Value per Turn</span>
+        <span class="_infoValue_1fs3u_152">11.33</span>
+      </div>
+    `;
+
+    const avg = parseAverageTurnValues(doc, 'OpponentPlayer', 'Renan');
+    expect(avg.opponentAvgTurnValue).toBe(11.33);
+  });
+
+  it('should parse equipment for player and opponent', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="PlayerBoardGrid">
+        <div class="equipmentZone">
+          <img title="Crown of Providence" />
+          <img title="Fyendal's Spring Tunic" />
+        </div>
+        <div class="weaponZone">
+          <img title="Mandible Claw" />
+        </div>
+      </div>
+      <div class="OpponentBoardGrid">
+        <div class="equipmentZone">
+          <img title="Ironrot Gauntlet" />
+        </div>
+        <div class="weaponZone">
+          <img title="Dawnblade" />
+        </div>
+      </div>
+    `;
+
+    const equip = parseEquipment(doc);
+    expect(equip.playerEquipment).toContain('Crown of Providence');
+    expect(equip.playerEquipment).toContain("Fyendal's Spring Tunic");
+    expect(equip.playerEquipment).toContain('Mandible Claw');
+    expect(equip.opponentEquipment).toContain('Ironrot Gauntlet');
+    expect(equip.opponentEquipment).toContain('Dawnblade');
+  });
+
+  it('should annotate card pitch colors in combat logs', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="ChatBox_chatBox__xyz">
+        <div class="ChatBox_chatMessage__1">
+          <b>akiles185</b> played <span class="card">Savage Feast (1)</span> for 6
+        </div>
+        <div class="ChatBox_chatMessage__2">
+          <b>NateFrautschy</b> defended with <span class="card pitch2">Sink Below</span>
+        </div>
+        <div class="ChatBox_chatMessage__3">
+          <b>NateFrautschy</b> pitched <span class="card pitch3">Sigil of Solace</span>
+        </div>
+      </div>
+    `;
+
+    const logs = parseCombatLogs(doc);
+    expect(logs[0]).toContain('Savage Feast (1 - Vermelha)');
+    expect(logs[1]).toContain('Sink Below (Amarela)');
+    expect(logs[2]).toContain('Sigil of Solace (Azul)');
+  });
+
+  it('should recognize opponent average turn value when different from known player average', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="_infoRow_1fs3u_100">
+        <span class="_infoLabel_1fs3u_120">Avg Value per Turn</span>
+        <span class="_infoValue_1fs3u_152">11.33</span>
+      </div>
+    `;
+
+    const avg = parseAverageTurnValues(doc, undefined, undefined, 14.8);
+    expect(avg.opponentAvgTurnValue).toBe(11.33);
   });
 });
+

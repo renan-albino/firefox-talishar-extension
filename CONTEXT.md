@@ -26,3 +26,12 @@ Arquivo delimitado exportado localmente no formato compatível com Excel e ferra
 
 ### Sheets Webhook (Webhook de Planilha)
 Ponto de extremidade HTTP (Google Apps Script Web App) associado a uma planilha do Google Sheets do usuário, capaz de receber requisições POST com os dados consolidados da partida e inseri-los automaticamente em uma nova linha.
+
+### Equipment Tracking (Rastreamento de Equipamento)
+Identificação das cartas de equipamento equipadas pelos jogadores em suas respectivas zonas de tabuleiro (cabeça, peitoral, braços, pernas e armas).
+
+### Pitch Colors (Cores de Pitch)
+Identificação visual e semântica do custo/recurso de pitch de cada carta em Flesh and Blood no formato PT-BR: `(1 - Vermelha)` para pitch 1, `(2 - Amarela)` para pitch 2 e `(3 - Azul)` para pitch 3.
+
+### AI Combat Log (Log para Inteligência Artificial)
+Transcrição textual integral de combate na qual os nomes de tela dos usuários são substituídos contextualmente pelos heróis correspondentes, permitindo raciocínio e ingestão natural por modelos de linguagem (LLMs).

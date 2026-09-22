@@ -8,6 +8,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   googleSheetsWebhookUrl: '',
   autoOpenNotesModal: false,
   exportFormatPreference: 'both',
+  playerName: '',
+  googleSpreadsheetUrl: '',
 };
 
 export async function getSettings(): Promise<ExtensionSettings> {

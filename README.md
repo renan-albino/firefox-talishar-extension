@@ -6,13 +6,17 @@ Extensão de navegador para o Firefox desenvolvida com [WXT](https://wxt.dev/) e
 
 ## 🚀 Funcionalidades
 
-- **Captura Automática de Partidas**: Identifica jogadores, heróis, contagem de turnos, resultado (Vitória/Derrota) e log de ações em tempo real.
-- **Métricas de Valor Médio por Turno**: Coleta o *Valor Médio por Turno* (*Avg Value per Turn*) do jogador e do oponente calculado pelo Talishar.
-- **Rastreamento de Sideboard & Decks < 60 cartas**: Detecta as cartas deixadas de fora do main deck durante a fase de sideboard no lobby.
-- **Modal de Notas Pós-Partida**: Botão flutuante não intrusivo ao fim da partida que abre um modal para registrar aprendizados, erros e notas antes de salvar.
-- **Exportação para Google Sheets**: Envio em 1 clique para sua planilha do Google via Webhook sem burocracia de OAuth.
+- **Captura Automática de Partidas**: Identifica jogadores, heróis, contagem de turnos, resultado (Vitória/Derrota), quem iniciou a partida e log de ações em tempo real.
+- **Métricas de Valor Médio por Turno**: Coleta o *Valor Médio por Turno* (*Avg Value per Turn*) do jogador e do oponente calculado pelo Talishar, com suporte a troca rápida de abas, detecção por contraste e campos 100% editáveis no modal.
+- **Rastreamento de Equipamentos**: Identifica o equipamento completo utilizado por você e pelo oponente (cabeça, peitoral, braços, pernas e armas).
+- **Anotação de Cores das Cartas (Pitch)**: Registra no log o pitch de cada carta jogada ou anunciada: `(1 - Vermelha)`, `(2 - Amarela)` e `(3 - Azul)`.
+- **Rastreamento de Sideboard & Decks**: Detecta as cartas deixadas de fora do main deck durante a fase de sideboard no lobby ou inventário em jogo.
+- **Log Completo Otimizado para IA**: Ao baixar o arquivo `.txt` do log de combate, os nicknames dos jogadores são automaticamente substituídos pelos nomes dos respectivos personagens/heróis, facilitando a ingestão por LLMs (ChatGPT, Claude, Gemini, etc.).
+- **Exportação para Google Sheets**: Envio em 1 clique para sua planilha do Google via Webhook (Google Apps Script) com validação de URL, teste de conexão instantâneo e botão de acesso rápido à planilha.
 - **Exportação em CSV (Excel PT-BR)**: Gera arquivos com cabeçalho UTF-8 BOM (`\uFEFF`) e delimitador ponto-e-vírgula (`;`), abrindo diretamente no Excel sem caracteres corrompidos.
-- **Download do Log Completo**: Permite baixar a transcrição textual integral da partida em `.txt`.
+- **Estrutura de Colunas Padronizada**:
+  1. `Dia` | 2. `Jogador` | 3. `Deck` | 4. `Match` (herói do oponente) | 5. `Formato` | 6. `Resultado` | 7. `Iniciou` | 8. `Plataforma de Jogo` | 9. `Adversário` | 10. `Observações` | 11. `Turnos` | 12. `Meu Valor Médio/Turno` | 13. `Valor Médio/Turno Oponente` | 14. `Cartas Fora/Sideboard`
+- **Modal de Notas Pós-Partida & Botão Flutuante**: Botão compacto no canto superior direito ao fim da partida que abre um modal para registrar aprendizados, erros e notas antes de salvar.
 
 ---
 

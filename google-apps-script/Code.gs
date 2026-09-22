@@ -15,21 +15,43 @@
  * 8. Cole a URL no popup da extensão do Firefox!
  */
 
+function formatDate(isoString) {
+  if (!isoString) return '';
+  try {
+    var d = new Date(isoString);
+    if (isNaN(d.getTime())) return isoString;
+    var day = ('0' + d.getDate()).slice(-2);
+    var month = ('0' + (d.getMonth() + 1)).slice(-2);
+    var year = d.getFullYear();
+    return day + '/' + month + '/' + year;
+  } catch (e) {
+    return isoString;
+  }
+}
+
+function translateResult(res) {
+  if (res === 'win') return 'Vitória';
+  if (res === 'loss') return 'Derrota';
+  if (res === 'draw') return 'Empate';
+  return res || 'Desconhecido';
+}
+
 function setupHeaders(sheet) {
   var headers = [
-    'ID da Partida',
-    'Data/Hora',
+    'Dia',
     'Jogador',
-    'Herói',
-    'Oponente',
-    'Herói Oponente',
+    'Deck',
+    'Match',
+    'Formato',
     'Resultado',
+    'Iniciou',
+    'Plataforma de Jogo',
+    'Adversário',
+    'Observações',
     'Turnos',
     'Meu Valor Médio/Turno',
     'Valor Médio/Turno Oponente',
-    'Cartas Fora/Sideboard',
-    'Notas',
-    'Log Resumido'
+    'Cartas Fora/Sideboard'
   ];
   sheet.appendRow(headers);
   var headerRange = sheet.getRange(1, 1, 1, headers.length);
@@ -40,16 +62,16 @@ function setupHeaders(sheet) {
 
 function doPost(e) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getActiveSheet();
-
-    if (sheet.getLastRow() === 0) {
-      setupHeaders(sheet);
+    var data = {};
+    if (e && e.postData && e.postData.contents) {
+      try {
+        data = JSON.parse(e.postData.contents);
+      } catch (parseErr) {
+        data = {};
+      }
     }
 
-    var data = JSON.parse(e.postData.contents);
-
-    // Se for teste de conexão (Ping)
+    // Se for teste de conexão (Ping) - responde instantaneamente sem carregar a planilha
     if (data.type === 'PING') {
       return ContentService.createTextOutput(JSON.stringify({
         status: 'success',
@@ -57,20 +79,34 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getActiveSheet();
+
+    if (sheet.getLastRow() === 0) {
+      setupHeaders(sheet);
+    }
+
+    var playerHero = (data.player && data.player.hero) || '-';
+    var oppHero = (data.opponent && data.opponent.hero) || '-';
+    var matchTitle = oppHero;
+    var wentFirstText = data.wentFirst === undefined ? '-' : (data.wentFirst ? 'Sim' : 'Não');
+    var opponentName = (data.opponent && (data.opponent.name || data.opponent.hero)) || 'Oponente';
+
     var row = [
-      data.id || '',
-      data.timestamp || new Date().toISOString(),
-      (data.player && data.player.name) || '',
-      (data.player && data.player.hero) || '',
-      (data.opponent && data.opponent.name) || '',
-      (data.opponent && data.opponent.hero) || '',
-      data.result || '',
+      formatDate(data.timestamp),
+      (data.player && data.player.name) || 'Jogador',
+      playerHero,
+      matchTitle,
+      data.format || 'CC',
+      translateResult(data.result),
+      wentFirstText,
+      data.platform || 'Talishar',
+      opponentName,
+      data.notes || '',
       data.turnsCount || 0,
       (data.player && data.player.avgTurnValue !== undefined) ? data.player.avgTurnValue : '',
       (data.opponent && data.opponent.avgTurnValue !== undefined) ? data.opponent.avgTurnValue : '',
-      (data.sideboardCards && data.sideboardCards.length > 0) ? data.sideboardCards.join(', ') : '-',
-      data.notes || '',
-      (data.rawLogs && data.rawLogs.length > 0) ? data.rawLogs.slice(0, 10).join(' | ') : ''
+      (data.sideboardCards && data.sideboardCards.length > 0) ? data.sideboardCards.join(', ') : '-'
     ];
 
     sheet.appendRow(row);
@@ -89,5 +125,27 @@ function doPost(e) {
 }
 
 function doGet(e) {
-  return ContentService.createTextOutput('Webhook do Talishar Log Exporter está ativo e pronto para receber dados via POST.');
+  try {
+    // Se for requisição de teste/ping via GET
+    if (e && e.parameter && (e.parameter.type === 'PING' || e.parameter.ping === '1')) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'success',
+        message: 'Conexão com Google Sheets validada com sucesso!'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetUrl = ss.getUrl();
+    return HtmlService.createHtmlOutput(
+      '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+      '<meta http-equiv="refresh" content="0;url=' + sheetUrl + '">' +
+      '<title>Redirecionando...</title></head>' +
+      '<body style="font-family:sans-serif;text-align:center;padding-top:50px;background:#181822;color:#fff;">' +
+      '<h2>Abrindo sua planilha do Google Sheets...</h2>' +
+      '<p><a href="' + sheetUrl + '" style="color:#38bdf8;">Clique aqui caso não seja redirecionado automaticamente</a></p>' +
+      '</body></html>'
+    );
+  } catch (err) {
+    return ContentService.createTextOutput('Webhook do Talishar Log Exporter está ativo e pronto para receber dados via POST.');
+  }
 }

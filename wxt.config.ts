@@ -13,6 +13,9 @@ export default defineConfig({
       '*://*.talishar.net/*',
       'https://script.google.com/*',
       'https://script.googleusercontent.com/*',
+      'https://*.google.com/*',
+      'https://*.googleusercontent.com/*',
+      '<all_urls>',
     ],
     browser_specific_settings: {
       gecko: {

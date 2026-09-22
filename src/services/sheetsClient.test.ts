@@ -28,7 +28,7 @@ describe('SheetsClient', () => {
   it('should successfully post match record to webhook URL', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ status: 'success', rowNumber: 15 }),
+      text: () => Promise.resolve(JSON.stringify({ status: 'success', rowNumber: 15 })),
     });
     global.fetch = mockFetch;
 
@@ -48,7 +48,7 @@ describe('SheetsClient', () => {
   it('should test connection successfully with PING', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ status: 'success', message: 'Conectado!' }),
+      text: () => Promise.resolve(JSON.stringify({ status: 'success', message: 'Conectado!' })),
     });
     global.fetch = mockFetch;
 
@@ -59,11 +59,55 @@ describe('SheetsClient', () => {
     expect(body.type).toBe('PING');
   });
 
+  it('should detect when user pastes a spreadsheet link instead of the webhook', async () => {
+    const result = await sendMatchToSheets(
+      sampleMatch,
+      'https://docs.google.com/spreadsheets/d/1BxiMVs0XRm5nZy1nM640ke3/edit'
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Você informou o link da planilha');
+  });
+
+  it('should detect when URL is malformed', async () => {
+    const result = await sendMatchToSheets(sampleMatch, 'not-a-valid-url');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('inválida');
+  });
+
+  it('should detect HTML response from a non-webhook endpoint', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('<!DOCTYPE html><html><body>Error</body></html>'),
+    });
+
+    const result = await sendMatchToSheets(sampleMatch, 'https://script.google.com/macros/s/xyz/exec');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('retornou uma página HTML');
+  });
+
   it('should handle fetch rejection gracefully', async () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('Network offline'));
 
     const result = await sendMatchToSheets(sampleMatch, 'https://script.google.com/macros/s/xyz/exec');
     expect(result.success).toBe(false);
     expect(result.error).toContain('Network offline');
+  });
+
+  it('should return friendly timeout error when AbortError occurs', async () => {
+    const abortErr = new Error('The operation was aborted');
+    abortErr.name = 'AbortError';
+    global.fetch = vi.fn().mockRejectedValue(abortErr);
+
+    const result = await testSheetsConnection('https://script.google.com/macros/s/xyz/exec', 100);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Tempo limite esgotado');
+  });
+
+  it('should return helpful CORS guidance on browser NetworkError', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('NetworkError when attempting to fetch resource.'));
+
+    const result = await testSheetsConnection('https://script.google.com/macros/s/xyz/exec');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Qualquer pessoa');
   });
 });

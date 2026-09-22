@@ -13,6 +13,9 @@ export function createFloatingButton(onClick: () => void): HTMLElement {
     position: fixed;
     top: 12px;
     right: 20px;
+    left: auto !important;
+    width: auto !important;
+    max-width: fit-content;
     z-index: 999990;
     display: flex;
     align-items: center;
@@ -21,8 +24,8 @@ export function createFloatingButton(onClick: () => void): HTMLElement {
     color: white;
     border: 1px solid rgba(255, 255, 255, 0.25);
     border-radius: 20px;
-    padding: 6px 14px;
-    font-size: 12px;
+    padding: 6px 12px;
+    font-size: 11px;
     font-weight: 600;
     cursor: pointer;
     box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
