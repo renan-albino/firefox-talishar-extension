@@ -584,18 +584,26 @@ export function parseAverageTurnValues(
  * Determines the match result (win/loss/draw) from victory or defeat indicators.
  */
 export function parseMatchResult(doc: Document): MatchResult {
-  const victoryEl = doc.querySelector('[class*="outcomeVictory"], [class*="OutcomeVictory"]');
+  const victoryEl = doc.querySelector('[class*="outcomeVictory"], [class*="OutcomeVictory"], [class*="victory"], [class*="Victory"]');
   if (victoryEl) return 'win';
 
-  const defeatEl = doc.querySelector('[class*="outcomeDefeat"], [class*="OutcomeDefeat"]');
+  const defeatEl = doc.querySelector('[class*="outcomeDefeat"], [class*="OutcomeDefeat"], [class*="defeat"], [class*="Defeat"]');
   if (defeatEl) return 'loss';
 
   // Fallback to text searching in game dialogs or end screen
-  const endContainer = doc.querySelector('[class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"]');
+  const endContainer = doc.querySelector('[class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="matchResult"]');
   if (endContainer) {
     const text = (endContainer.textContent || '').toUpperCase();
     if (text.includes('VICTORY') || text.includes('YOU WIN')) return 'win';
     if (text.includes('DEFEAT') || text.includes('YOU LOSE')) return 'loss';
+  }
+
+  // Extreme fallback: check all headings
+  const headings = Array.from(doc.querySelectorAll('h1, h2, h3'));
+  for (const h of headings) {
+    const txt = h.textContent?.toUpperCase() || '';
+    if (txt.includes('VICTORY') || txt.includes('YOU WIN')) return 'win';
+    if (txt.includes('DEFEAT') || txt.includes('YOU LOSE')) return 'loss';
   }
 
   return 'unknown';

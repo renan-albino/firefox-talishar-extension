@@ -124,22 +124,28 @@ export default defineContentScript({
       
       const hasGameOver =
         document.querySelector(
-          '[class*="outcomeVictory"], [class*="OutcomeVictory"], [class*="outcomeDefeat"], [class*="OutcomeDefeat"], [class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"]'
-        ) !== null;
+          '[class*="outcomeVictory"], [class*="OutcomeVictory"], [class*="outcomeDefeat"], [class*="OutcomeDefeat"], [class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="matchResult"], [class*="victory"], [class*="defeat"], [class*="Victory"], [class*="Defeat"]'
+        ) !== null || Array.from(document.querySelectorAll('h1, h2, h3, div')).some(el => {
+          const txt = el.textContent?.trim().toLowerCase() || '';
+          return (txt === 'victory' || txt === 'defeat' || txt === 'you win' || txt === 'you lose' || txt === 'game over' || txt.includes('average value per turn'));
+        });
 
-      // 1. Pre-game Lobby Stage: Capture sideboard / deck adjustments
-      if (!hasGameOver && isPreGameLobby(document)) {
+      // 1. Pre-game Lobby / In-Game Stage: Reset state if we are no longer in game over screen
+      if (!hasGameOver) {
         if (matchEndedHandled) {
           matchEndedHandled = false;
           modalElement = null;
         }
-        const adjustment = trackLobbyDeckState(document);
-        if ((adjustment.mainDeckCount ?? 0) > 0) {
-          currentDeckAdjustment = adjustment;
-          saveSideboardToStorage(adjustment);
+        
+        if (isPreGameLobby(document)) {
+          const adjustment = trackLobbyDeckState(document);
+          if ((adjustment.mainDeckCount ?? 0) > 0) {
+            currentDeckAdjustment = adjustment;
+            saveSideboardToStorage(adjustment);
+          }
+          const oldBtn = document.getElementById('talishar-log-export-btn');
+          if (oldBtn) oldBtn.remove();
         }
-        const oldBtn = document.getElementById('talishar-log-export-btn');
-        if (oldBtn) oldBtn.remove();
       }
 
       // 2. In-game: If InventoryModal opens, capture inventory cards as sideboard
@@ -170,7 +176,7 @@ export default defineContentScript({
           const result = parseMatchResult(document);
           if (
             result !== 'unknown' ||
-            document.querySelector('[class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"]')
+            document.querySelector('[class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="matchResult"]') !== null
           ) {
             matchEndedHandled = true;
 
