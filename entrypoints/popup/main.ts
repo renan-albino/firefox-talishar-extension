@@ -154,13 +154,15 @@ async function init() {
   }
 
   // Export Last Match Manually
-  document.getElementById('export-last-match-btn')?.addEventListener('click', async () => {
+  const exportLastMatchBtn = document.getElementById('export-last-match-btn');
+  exportLastMatchBtn?.addEventListener('click', async () => {
     try {
       const activeTabs = await browser.tabs.query({ active: true, currentWindow: true });
       const currentTab = activeTabs[0];
       if (currentTab && currentTab.url?.includes('talishar.net')) {
+        exportLastMatchBtn.innerText = 'Abrindo Painel no Jogo...';
         await browser.tabs.sendMessage(currentTab.id!, { type: 'OPEN_MODAL_LAST_MATCH' });
-        window.close(); // close popup
+        setTimeout(() => window.close(), 500); // close popup
       } else {
         alert('Você precisa estar na aba do Talishar para abrir o exportador da partida!');
       }

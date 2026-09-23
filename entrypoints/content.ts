@@ -30,11 +30,12 @@ export default defineContentScript({
 
     // Helper to open the export dialog
     const openNotesModal = async (matchData: MatchRecord) => {
-      if (modalElement && document.body.contains(modalElement)) {
-        if (modalElement.style.display === 'none') {
-          modalElement.style.display = 'flex';
+      // Force remove any old modal so it reconstructs with the correct match data
+      if (modalElement) {
+        if (document.body.contains(modalElement)) {
+          modalElement.remove();
         }
-        return;
+        modalElement = null;
       }
 
       const freshSettings = await getSettings();
