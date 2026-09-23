@@ -14,7 +14,7 @@ import {
 } from '../src/parsers/sideboardTracker';
 import { createFloatingButton } from '../src/ui/floatingButton';
 import { createExportModal } from '../src/ui/exportModal';
-import { getSettings, saveMatchToHistory } from '../src/utils/storage';
+import { getSettings, saveMatchToHistory, getMatchHistory } from '../src/utils/storage';
 import type { MatchRecord, DeckAdjustment } from '../src/types/match';
 import type { SheetsResponse } from '../src/services/sheetsClient';
 
@@ -212,6 +212,9 @@ export default defineContentScript({
                 hero: snapshot.player?.hero || '-',
                 name: finalPlayerName,
                 avgTurnValue: snapshot.player?.avgTurnValue,
+                fatigue: snapshot.player?.fatigue,
+                maxDamage: snapshot.player?.maxDamage,
+                maxDamageTurn: snapshot.player?.maxDamageTurn,
               },
               opponent: snapshot.opponent || { name: 'Oponente', hero: '-' },
               result: snapshot.result || 'unknown',
@@ -225,6 +228,9 @@ export default defineContentScript({
               wentFirst: snapshot.wentFirst,
               platform: 'Talishar',
             };
+
+            // AUTO-SAVE to local DB instantly so no data is ever lost
+            saveMatchToHistory(completedMatch).catch(console.error);
 
             showFloatingButton(completedMatch);
 
@@ -309,6 +315,18 @@ export default defineContentScript({
         const isIngame = document.querySelector('[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"]') !== null;
         
         return Promise.resolve({ status: (hasGameOver || isInLobby || isIngame) ? 'active' : 'error' });
+      }
+
+      if (message?.type === 'OPEN_MODAL_LAST_MATCH') {
+        // Fetch the last match from the local DB
+        getMatchHistory().then((history) => {
+          if (history && history.length > 0) {
+            const lastMatch = history[0];
+            showFloatingButton(lastMatch);
+            openNotesModal(lastMatch);
+          }
+        }).catch(console.error);
+        return Promise.resolve(true);
       }
     });
   },

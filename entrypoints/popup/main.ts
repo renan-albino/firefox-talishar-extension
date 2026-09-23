@@ -153,6 +153,22 @@ async function init() {
     // browser.tabs might not be available in some environments
   }
 
+  // Export Last Match Manually
+  document.getElementById('export-last-match-btn')?.addEventListener('click', async () => {
+    try {
+      const activeTabs = await browser.tabs.query({ active: true, currentWindow: true });
+      const currentTab = activeTabs[0];
+      if (currentTab && currentTab.url?.includes('talishar.net')) {
+        await browser.tabs.sendMessage(currentTab.id!, { type: 'OPEN_MODAL_LAST_MATCH' });
+        window.close(); // close popup
+      } else {
+        alert('Você precisa estar na aba do Talishar para abrir o exportador da partida!');
+      }
+    } catch (err) {
+      alert('Não foi possível conectar à página do Talishar. Recarregue a aba.');
+    }
+  });
+
   // Export CSV
   document.getElementById('export-csv-btn')?.addEventListener('click', async () => {
     const history = await getMatchHistory();
