@@ -127,7 +127,7 @@ export default defineContentScript({
           '[class*="outcomeVictory"], [class*="OutcomeVictory"], [class*="outcomeDefeat"], [class*="OutcomeDefeat"], [class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="matchResult"], [class*="victory"], [class*="defeat"], [class*="Victory"], [class*="Defeat"]'
         ) !== null || Array.from(document.querySelectorAll('h1, h2, h3, div')).some(el => {
           const txt = el.textContent?.trim().toLowerCase() || '';
-          return (txt === 'victory' || txt === 'defeat' || txt === 'you win' || txt === 'you lose' || txt === 'game over' || txt.includes('average value per turn'));
+          return (txt === 'victory' || txt === 'defeat' || txt === 'you win' || txt === 'you lose' || txt === 'game over');
         });
 
       const isInLobby = isPreGameLobby(document);
