@@ -7,6 +7,9 @@ export interface PlayerStats {
   hero: string;
   avgTurnValue?: number;
   finalHealth?: number;
+  fatigue?: number;
+  maxDamage?: number;
+  maxDamageTurn?: number;
 }
 
 export interface CombatLogEntry {

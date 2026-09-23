@@ -68,12 +68,16 @@ export function createExportModal(options: ModalOptions): HTMLElement {
     padding: 24px;
     box-sizing: border-box;
     pointer-events: auto;
+    position: absolute;
+    top: 5vh;
+    left: 50%;
+    transform: translateX(-50%);
   `;
 
   const hasOpponentAvg = match.opponent.avgTurnValue !== undefined && !isNaN(match.opponent.avgTurnValue);
 
   container.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <div id="modal-drag-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; cursor: grab;">
       <h2 style="margin: 0; font-size: 18px; color: #ff7043; display: flex; align-items: center; gap: 8px;">
         ⚔️ Salvar e Exportar Partida
       </h2>
@@ -524,5 +528,47 @@ export function createExportModal(options: ModalOptions): HTMLElement {
   container.querySelector('#modal-close-icon')?.addEventListener('click', close);
   container.querySelector('#modal-btn-cancel')?.addEventListener('click', close);
 
+  // Dragging logic
+  const dragHeader = container.querySelector<HTMLDivElement>('#modal-drag-header');
+  if (dragHeader) {
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startLeft = 0;
+    let startTop = 0;
+
+    dragHeader.addEventListener('mousedown', (e: MouseEvent) => {
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = container.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+      
+      container.style.transform = 'none';
+      container.style.left = `${startLeft}px`;
+      container.style.top = `${startTop}px`;
+      
+      dragHeader.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e: MouseEvent) => {
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      container.style.left = `${startLeft + dx}px`;
+      container.style.top = `${startTop + dy}px`;
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        dragHeader.style.cursor = 'grab';
+      }
+    });
+  }
+
+  overlay.appendChild(container);
   return overlay;
 }

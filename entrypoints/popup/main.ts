@@ -1,5 +1,6 @@
-import { getSettings, saveSettings } from '../../src/utils/storage';
+import { getSettings, saveSettings, getMatchHistory, importMatchesFromCsv } from '../../src/utils/storage';
 import { testSheetsConnection, validateWebhookUrl, type SheetsResponse } from '../../src/services/sheetsClient';
+import { formatMatchHistoryCsv } from '../../src/formatters/csvFormatter';
 
 const webhookInput = document.getElementById('webhook-url') as HTMLInputElement | null;
 const spreadsheetInput = document.getElementById('spreadsheet-url') as HTMLInputElement | null;
@@ -9,27 +10,141 @@ const openSheetBtn = document.getElementById('open-sheet-btn') as HTMLButtonElem
 const saveBtn = document.getElementById('save-btn') as HTMLButtonElement | null;
 const testBtn = document.getElementById('test-btn') as HTMLButtonElement | null;
 const statusDiv = document.getElementById('status') as HTMLDivElement | null;
+const statsStatusDiv = document.getElementById('stats-status') as HTMLDivElement | null;
 
-function setStatus(msg: string, isError = false) {
-  if (!statusDiv) return;
-  statusDiv.textContent = msg;
-  statusDiv.style.color = isError ? '#f87171' : '#4ade80';
+function setStatus(msg: string, isError = false, el = statusDiv) {
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = isError ? '#f87171' : '#4ade80';
+}
+
+async function initDashboard() {
+  const history = await getMatchHistory();
+  const countEl = document.getElementById('dash-matches-count');
+  if (countEl) countEl.textContent = `${history.length} partidas`;
+  
+  if (history.length === 0) return;
+
+  const wins = history.filter(m => m.result === 'win').length;
+  const wr = (wins / history.length * 100).toFixed(1);
+  const wrEl = document.getElementById('dash-winrate');
+  if (wrEl) {
+    wrEl.textContent = `${wr}%`;
+    if (wins / history.length >= 0.5) {
+       wrEl.classList.add('win');
+       wrEl.classList.remove('loss');
+    } else {
+       wrEl.classList.add('loss');
+       wrEl.classList.remove('win');
+    }
+  }
+
+  const heroCounts: Record<string, number> = {};
+  const opponentMatchups: Record<string, { w: number, l: number }> = {};
+
+  history.forEach(m => {
+    const hero = m.player.hero || '-';
+    heroCounts[hero] = (heroCounts[hero] || 0) + 1;
+    
+    const opp = m.opponent.hero || '-';
+    if (!opponentMatchups[opp]) opponentMatchups[opp] = { w: 0, l: 0 };
+    if (m.result === 'win') opponentMatchups[opp].w++;
+    if (m.result === 'loss') opponentMatchups[opp].l++;
+  });
+
+  const mainHero = Object.keys(heroCounts).reduce((a, b) => heroCounts[a] > heroCounts[b] ? a : b, '-');
+  const mainHeroEl = document.getElementById('dash-main-hero');
+  if (mainHeroEl) mainHeroEl.textContent = mainHero;
+
+  let bestMatchup = '-';
+  let bestMatchupScore = -1;
+  let worstMatchup = '-';
+  let worstMatchupScore = 999;
+
+  Object.entries(opponentMatchups).forEach(([opp, stats]) => {
+    const total = stats.w + stats.l;
+    if (total >= 1) {
+      const rate = stats.w / total;
+      // Prefer matchups with more games if winrate is similar (optional, but keep simple)
+      if (rate > bestMatchupScore || (rate === bestMatchupScore && total > (opponentMatchups[bestMatchup]?.w || 0))) {
+        bestMatchupScore = rate;
+        bestMatchup = opp;
+      }
+      if (rate < worstMatchupScore) {
+        worstMatchupScore = rate;
+        worstMatchup = opp;
+      }
+    }
+  });
+
+  const formatHero = (h: string) => {
+    if (h === '-' || !h) return '-';
+    const words = h.split(' ');
+    if (words.length > 2) return `${words[0]} ${words[1]}`;
+    return words[0]; 
+  }
+
+  const bestEl = document.getElementById('dash-best-matchup');
+  const worstEl = document.getElementById('dash-worst-matchup');
+  if (bestEl) bestEl.textContent = formatHero(bestMatchup);
+  if (worstEl) worstEl.textContent = formatHero(worstMatchup);
 }
 
 async function init() {
   const settings = await getSettings();
-  if (playerNameInput) {
-    playerNameInput.value = settings.playerName || '';
-  }
-  if (webhookInput) {
-    webhookInput.value = settings.googleSheetsWebhookUrl || '';
-  }
-  if (spreadsheetInput) {
-    spreadsheetInput.value = settings.googleSpreadsheetUrl || '';
-  }
-  if (autoOpenInput) {
-    autoOpenInput.checked = Boolean(settings.autoOpenNotesModal);
-  }
+  if (playerNameInput) playerNameInput.value = settings.playerName || '';
+  if (webhookInput) webhookInput.value = settings.googleSheetsWebhookUrl || '';
+  if (spreadsheetInput) spreadsheetInput.value = settings.googleSpreadsheetUrl || '';
+  if (autoOpenInput) autoOpenInput.checked = Boolean(settings.autoOpenNotesModal);
+
+  // Tabs
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById(tab.getAttribute('data-target')!)?.classList.add('active');
+    });
+  });
+
+  // Export CSV
+  document.getElementById('export-csv-btn')?.addEventListener('click', async () => {
+    const history = await getMatchHistory();
+    if (history.length === 0) {
+      setStatus('Nenhum dado para exportar.', true, statsStatusDiv);
+      return;
+    }
+    const csv = formatMatchHistoryCsv(history);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'talishar_historico_partidas.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setStatus('Download iniciado! ✅', false, statsStatusDiv);
+    setTimeout(() => setStatus('', false, statsStatusDiv), 3000);
+  });
+
+  // Import CSV
+  const fileInput = document.getElementById('import-csv-file') as HTMLInputElement;
+  fileInput?.addEventListener('change', async (e) => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    setStatus('Lendo arquivo... ⏳', false, statsStatusDiv);
+    try {
+      const text = await file.text();
+      const importedCount = await importMatchesFromCsv(text);
+      setStatus(`Importadas ${importedCount} partidas com sucesso! ✅`, false, statsStatusDiv);
+      initDashboard();
+    } catch (err: any) {
+      setStatus(`Erro ao importar: ${err.message}`, true, statsStatusDiv);
+    }
+  });
+
+  initDashboard();
 }
 
 async function handleSave() {
@@ -95,19 +210,16 @@ async function handleTest() {
   try {
     let res: SheetsResponse | undefined;
 
-    // Dispara via background script para garantir permissões totais de rede
     try {
       res = (await browser.runtime.sendMessage({
         type: 'TEST_SHEETS_CONNECTION',
         webhookUrl: validation.url,
       })) as SheetsResponse | undefined;
     } catch {
-      // Caso o background não responda, faz o fallback direto
+      // Fallback
     }
 
-    if (!res) {
-      res = await testSheetsConnection(validation.url);
-    }
+    if (!res) res = await testSheetsConnection(validation.url);
 
     if (res.success) {
       setStatus('Conexão estabelecida com sucesso! ✅');

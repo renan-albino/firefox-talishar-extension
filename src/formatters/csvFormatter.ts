@@ -191,6 +191,11 @@ export function formatFullLogText(match: MatchRecord): string {
     `Sideboard / Cartas Fora: ${sideboardText}`,
     `Notas: ${match.notes || '-'}`,
     '',
+    '--- ESTATÍSTICAS AVANÇADAS ---',
+    `Turno de Maior Dano (Meu): ${match.player.maxDamage ?? 0} de dano (Turno ${match.player.maxDamageTurn ?? 0})`,
+    `Turno de Maior Dano (Oponente): ${match.opponent.maxDamage ?? 0} de dano (Turno ${match.opponent.maxDamageTurn ?? 0})`,
+    `Fadiga (Cartas no deck ao fim): Eu (${match.player.fatigue ?? '?'}) | Oponente (${match.opponent.fatigue ?? '?'})`,
+    '',
     '--- LOG DE COMBATE COMPLETO (PERSONAGENS / IA) ---',
   ].join('\n');
 

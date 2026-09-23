@@ -312,6 +312,20 @@ export function parseEquipment(doc: Document): {
       '[class*="equipment"], [class*="Equipment"], [class*="weapon"], [class*="Weapon"], [class*="EquipmentZone"], [class*="heroEquipment"], [class*="head"], [class*="chest"], [class*="arms"], [class*="legs"]'
     );
 
+    // 1. First approach: Look for specific images with the slotImage class anywhere in the container
+    const slotImages = Array.from(container.querySelectorAll('img[class*="slotImage"], img[class*="SlotImage"]'));
+    slotImages.forEach((img) => {
+      const src = img.getAttribute('src');
+      if (src) {
+        const formatted = formatTalisharCardName(src);
+        const lower = formatted.toLowerCase();
+        if (formatted && !lower.includes('hero') && !lower.includes('portrait') && !lower.includes('avatar') && !lower.includes('token')) {
+          equipNames.add(formatted);
+        }
+      }
+    });
+
+    // 2. Fallback to zones approach
     zones.forEach((zone) => {
       const imgs = zone.querySelectorAll('img');
       imgs.forEach((img) => {
@@ -630,6 +644,105 @@ export function parseWentFirst(logs: string[], playerName?: string, opponentName
 }
 
 /**
+ * Identifies the turn with the most damage dealt for each player based on combat logs.
+ */
+export function parseMaxDamageTurn(logs: string[], playerName?: string, opponentName?: string): { playerMaxDamage: number, playerMaxDamageTurn: number, opponentMaxDamage: number, opponentMaxDamageTurn: number } {
+  let playerMax = 0;
+  let playerMaxTurn = 0;
+  let opponentMax = 0;
+  let opponentMaxTurn = 0;
+
+  let currentTurn = 0;
+  let currentPlayerDamage = 0;
+  let currentOpponentDamage = 0;
+
+  const pushTurnResults = () => {
+    if (currentPlayerDamage > playerMax) {
+      playerMax = currentPlayerDamage;
+      playerMaxTurn = currentTurn;
+    }
+    if (currentOpponentDamage > opponentMax) {
+      opponentMax = currentOpponentDamage;
+      opponentMaxTurn = currentTurn;
+    }
+  };
+
+  for (const line of logs) {
+    const turnMatch = line.match(/Turn\s+(\d+)/i);
+    if (turnMatch) {
+      pushTurnResults();
+      currentTurn = parseInt(turnMatch[1], 10);
+      currentPlayerDamage = 0;
+      currentOpponentDamage = 0;
+      continue;
+    }
+
+    // Typical combat log for damage: "X takes Y damage" or "Z deals Y damage"
+    // Examples:
+    // "OpponentName takes 5 damage" => Opponent took 5 damage, Player dealt 5 damage.
+    // "PlayerName takes 3 damage" => Player took 3 damage, Opponent dealt 3 damage.
+    const dmgMatch = line.match(/takes (\d+) damage/i) || line.match(/deals (\d+) damage/i);
+    if (dmgMatch) {
+      const dmg = parseInt(dmgMatch[1], 10);
+      if (!isNaN(dmg)) {
+        const isPlayerTaking = playerName && line.toLowerCase().includes(playerName.toLowerCase());
+        const isOpponentTaking = opponentName && line.toLowerCase().includes(opponentName.toLowerCase());
+        
+        // If "takes", the person mentioned is receiving damage. 
+        // If "deals", the person mentioned is dealing damage.
+        const isTakes = /takes/i.test(line);
+
+        if (isTakes) {
+          if (isOpponentTaking) {
+            currentPlayerDamage += dmg;
+          } else if (isPlayerTaking) {
+            currentOpponentDamage += dmg;
+          }
+        } else {
+          // It's "deals"
+          if (isPlayerTaking) {
+            currentPlayerDamage += dmg;
+          } else if (isOpponentTaking) {
+            currentOpponentDamage += dmg;
+          }
+        }
+      }
+    }
+  }
+  pushTurnResults(); // flush last turn
+
+  return {
+    playerMaxDamage: playerMax,
+    playerMaxDamageTurn: playerMaxTurn,
+    opponentMaxDamage: opponentMax,
+    opponentMaxDamageTurn: opponentMaxTurn
+  };
+}
+
+/**
+ * Parses fatigue (cards left in deck) from the DOM.
+ */
+export function parseFatigue(doc: Document): { playerFatigue?: number, opponentFatigue?: number } {
+  const getDeckCount = (container: Element | null): number | undefined => {
+    if (!container) return undefined;
+    const countEl = container.querySelector('[class*="deckCount"], [class*="DeckCount"], [class*="deckSize"], [class*="badge"], [class*="count"]');
+    if (countEl && countEl.textContent) {
+      const val = parseInt(countEl.textContent.trim(), 10);
+      if (!isNaN(val)) return val;
+    }
+    return undefined;
+  };
+
+  const playerBoard = doc.querySelector('[class*="PlayerBoardGrid"], [class*="playerBoard"]');
+  const opponentBoard = doc.querySelector('[class*="OpponentBoardGrid"], [class*="opponentBoard"]');
+
+  return {
+    playerFatigue: getDeckCount(playerBoard),
+    opponentFatigue: getDeckCount(opponentBoard),
+  };
+}
+
+/**
  * Extracts a complete MatchRecord snapshot from the current DOM state.
  */
 export function extractMatchRecordFromDom(doc: Document = document): Partial<MatchRecord> {
@@ -645,17 +758,25 @@ export function extractMatchRecordFromDom(doc: Document = document): Partial<Mat
     playerName || playerHero
   );
   const { playerEquipment, opponentEquipment } = parseEquipment(doc);
+  const { playerFatigue, opponentFatigue } = parseFatigue(doc);
+  const { playerMaxDamage, playerMaxDamageTurn, opponentMaxDamage, opponentMaxDamageTurn } = parseMaxDamageTurn(rawLogs, playerName, oppName);
 
   const player: PlayerStats = {
     name: playerName || 'Jogador',
     hero: playerHero || '-',
     avgTurnValue: playerAvgTurnValue,
+    fatigue: playerFatigue,
+    maxDamage: playerMaxDamage,
+    maxDamageTurn: playerMaxDamageTurn
   };
 
   const opponent: PlayerStats = {
     name: oppName || 'Oponente',
     hero: opponentHero || '-',
     avgTurnValue: opponentAvgTurnValue,
+    fatigue: opponentFatigue,
+    maxDamage: opponentMaxDamage,
+    maxDamageTurn: opponentMaxDamageTurn
   };
 
   return {
