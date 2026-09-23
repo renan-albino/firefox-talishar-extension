@@ -1,6 +1,6 @@
 import { getSettings, saveSettings, getMatchHistory, importMatchesFromCsv } from '../../src/utils/storage';
 import { testSheetsConnection, validateWebhookUrl, type SheetsResponse } from '../../src/services/sheetsClient';
-import { formatMatchHistoryCsv } from '../../src/formatters/csvFormatter';
+import { formatMatchHistoryCsv, formatFullLogText } from '../../src/formatters/csvFormatter';
 
 const webhookInput = document.getElementById('webhook-url') as HTMLInputElement | null;
 const spreadsheetInput = document.getElementById('spreadsheet-url') as HTMLInputElement | null;
@@ -125,7 +125,9 @@ async function init() {
       } else {
         // Send a ping message to the content script in this tab
         try {
-          const res = await browser.tabs.sendMessage(currentTab.id!, { type: 'PING_STATUS' });
+          const res = (await browser.tabs.sendMessage(currentTab.id!, { type: 'PING_STATUS' })) as
+            | { status?: string }
+            | undefined;
           if (res?.status === 'active') {
             banner.style.background = 'rgba(16, 185, 129, 0.15)';
             banner.style.border = '1px solid rgba(16, 185, 129, 0.4)';
@@ -155,20 +157,85 @@ async function init() {
 
   // Export Last Match Manually
   const exportLastMatchBtn = document.getElementById('export-last-match-btn');
+  const exportLastMatchStatus = document.getElementById('export-last-match-status') as HTMLDivElement | null;
+
+  const showExportStatus = (msg: string, isError = false) => {
+    if (!exportLastMatchStatus) return;
+    exportLastMatchStatus.textContent = msg;
+    exportLastMatchStatus.style.display = 'block';
+    exportLastMatchStatus.style.background = isError ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+    exportLastMatchStatus.style.border = isError ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid rgba(16, 185, 129, 0.4)';
+    exportLastMatchStatus.style.color = isError ? '#f87171' : '#34d399';
+  };
+
   exportLastMatchBtn?.addEventListener('click', async () => {
     try {
       const activeTabs = await browser.tabs.query({ active: true, currentWindow: true });
       const currentTab = activeTabs[0];
       if (currentTab && currentTab.url?.includes('talishar.net')) {
         exportLastMatchBtn.innerText = 'Abrindo Painel no Jogo...';
-        await browser.tabs.sendMessage(currentTab.id!, { type: 'OPEN_MODAL_LAST_MATCH' });
-        setTimeout(() => window.close(), 500); // close popup
+        const res = (await browser.tabs.sendMessage(currentTab.id!, { type: 'OPEN_MODAL_LAST_MATCH' })) as
+          | { success?: boolean; reason?: string }
+          | undefined;
+
+        if (res?.success) {
+          exportLastMatchBtn.innerText = 'Painel Aberto no Jogo! ✅';
+          showExportStatus('Painel aberto com sucesso! Alternando para o jogo...', false);
+          setTimeout(() => window.close(), 800); // close popup
+        } else {
+          exportLastMatchBtn.innerText = '📝 Salvar/Exportar Última Partida Jogada';
+          showExportStatus(res?.reason || 'Não foi possível encontrar a partida na tela ou no histórico.', true);
+        }
       } else {
-        alert('Você precisa estar na aba do Talishar para abrir o exportador da partida!');
+        showExportStatus('⚠️ Abra a aba do Talishar (talishar.net) para visualizar o painel no jogo.', true);
       }
     } catch (err) {
-      alert('Não foi possível conectar à página do Talishar. Recarregue a aba.');
+      exportLastMatchBtn.innerText = '📝 Salvar/Exportar Última Partida Jogada';
+      showExportStatus('⚠️ Não foi possível conectar ao Talishar. Recarregue a aba do jogo (F5) e tente novamente.', true);
     }
+  });
+
+  // Export Full Log (.txt)
+  document.getElementById('export-log-btn')?.addEventListener('click', async () => {
+    let targetMatch = null;
+    const history = await getMatchHistory();
+    if (history.length > 0) {
+      targetMatch = history[history.length - 1];
+    } else {
+      // Try fetching current match on screen from active tab
+      try {
+        const activeTabs = await browser.tabs.query({ active: true, currentWindow: true });
+        const currentTab = activeTabs[0];
+        if (currentTab && currentTab.url?.includes('talishar.net')) {
+          const res = (await browser.tabs.sendMessage(currentTab.id!, { type: 'GET_CURRENT_MATCH' })) as
+            | { success?: boolean; match?: any }
+            | undefined;
+          if (res?.success && res.match) {
+            targetMatch = res.match;
+          }
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
+    if (!targetMatch) {
+      setStatus('Nenhum log de partida disponível para download.', true, statsStatusDiv);
+      return;
+    }
+
+    const logText = formatFullLogText(targetMatch);
+    const blob = new Blob([logText], { type: 'text/plain;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `talishar-${targetMatch.id || Date.now()}-log.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+    setStatus('Download do log (.txt) iniciado! ✅', false, statsStatusDiv);
+    setTimeout(() => setStatus('', false, statsStatusDiv), 3000);
   });
 
   // Export CSV

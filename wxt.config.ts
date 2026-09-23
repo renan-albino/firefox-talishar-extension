@@ -11,6 +11,7 @@ export default defineConfig({
     permissions: ['storage', 'downloads'],
     host_permissions: [
       '*://*.talishar.net/*',
+      '*://talishar.net/*',
       'https://script.google.com/*',
       'https://script.googleusercontent.com/*',
       'https://*.google.com/*',

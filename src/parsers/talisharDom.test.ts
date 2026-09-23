@@ -294,5 +294,40 @@ describe('talisharDom parser', () => {
     const avg = parseAverageTurnValues(doc, undefined, undefined, 14.8);
     expect(avg.opponentAvgTurnValue).toBe(11.33);
   });
+
+  it('should detect win when opponent concedes in combat logs', () => {
+    const doc = document.implementation.createHTMLDocument();
+    const logs = [
+      'Turn 3 - Renan',
+      'Renan played Command and Conquer for 6',
+      'RivalPlayer has conceded the game',
+    ];
+
+    const result = parseMatchResult(doc, logs, 'Renan', 'RivalPlayer');
+    expect(result).toBe('win');
+  });
+
+  it('should detect loss when player concedes in combat logs', () => {
+    const doc = document.implementation.createHTMLDocument();
+    const logs = [
+      'Turn 4 - RivalPlayer',
+      'RivalPlayer played Red in the Ledger',
+      'Renan conceded the match',
+    ];
+
+    const result = parseMatchResult(doc, logs, 'Renan', 'RivalPlayer');
+    expect(result).toBe('loss');
+  });
+
+  it('should detect win when player has won the game is announced in combat logs', () => {
+    const doc = document.implementation.createHTMLDocument();
+    const logs = [
+      'Turn 5 - Renan',
+      'Renan has won the game!',
+    ];
+
+    const result = parseMatchResult(doc, logs, 'Renan', 'RivalPlayer');
+    expect(result).toBe('win');
+  });
 });
 

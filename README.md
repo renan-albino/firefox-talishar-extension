@@ -11,12 +11,11 @@ Extensão de navegador para o Firefox desenvolvida com [WXT](https://wxt.dev/) e
 - **Rastreamento de Equipamentos**: Identifica o equipamento completo utilizado por você e pelo oponente (cabeça, peitoral, braços, pernas e armas).
 - **Anotação de Cores das Cartas (Pitch)**: Registra no log o pitch de cada carta jogada ou anunciada: `(1 - Vermelha)`, `(2 - Amarela)` e `(3 - Azul)`.
 - **Rastreamento de Sideboard & Decks**: Detecta as cartas deixadas de fora do main deck durante a fase de sideboard no lobby ou inventário em jogo.
-- **Log Completo Otimizado para IA**: Ao baixar o arquivo `.txt` do log de combate, os nicknames dos jogadores são automaticamente substituídos pelos nomes dos respectivos personagens/heróis, facilitando a ingestão por LLMs (ChatGPT, Claude, Gemini, etc.).
-- **Exportação para Google Sheets**: Envio em 1 clique para sua planilha do Google via Webhook (Google Apps Script) com validação de URL, teste de conexão instantâneo e botão de acesso rápido à planilha.
-- **Exportação em CSV (Excel PT-BR)**: Gera arquivos com cabeçalho UTF-8 BOM (`\uFEFF`) e delimitador ponto-e-vírgula (`;`), abrindo diretamente no Excel sem caracteres corrompidos.
+- **Log Completo Otimizado para IA**: Download do arquivo `.txt` do log de combate tanto pelo popup quanto pelo modal pós-partida; nicknames dos jogadores são automaticamente substituídos pelos nomes dos respectivos heróis para ingestão por LLMs (ChatGPT, Claude, Gemini, etc.).
+- **Exportação e Importação em CSV (Excel PT-BR)**: Gera arquivos com cabeçalho UTF-8 BOM (`\uFEFF`) e delimitador ponto-e-vírgula (`;`), abrindo diretamente no Excel sem caracteres corrompidos. Ordenado cronologicamente com **novos jogos anexados sempre nas linhas de baixo**, preservando a sequência original de planilhas importadas.
 - **Estrutura de Colunas Padronizada**:
   1. `Dia` | 2. `Jogador` | 3. `Deck` | 4. `Match` (herói do oponente) | 5. `Formato` | 6. `Resultado` | 7. `Iniciou` | 8. `Plataforma de Jogo` | 9. `Adversário` | 10. `Observações` | 11. `Turnos` | 12. `Meu Valor Médio/Turno` | 13. `Valor Médio/Turno Oponente` | 14. `Cartas Fora/Sideboard`
-- **Modal de Notas Pós-Partida & Botão Flutuante**: Botão compacto no canto superior direito ao fim da partida que abre um modal para registrar aprendizados, erros e notas antes de salvar.
+- **Modal de Notas Pós-Partida & Botão Flutuante**: Botão compacto no canto superior direito ao fim da partida (e acionável pelo popup) com injeção segura (compatível com Talishar FE) que abre o modal para registrar notas, revisar estatísticas e exportar.
 
 ---
 

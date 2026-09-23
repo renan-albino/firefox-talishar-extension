@@ -31,14 +31,24 @@ export async function saveSettings(settings: Partial<ExtensionSettings>): Promis
 
 export async function saveMatchToHistory(match: MatchRecord): Promise<void> {
   const history = await getMatchHistory();
-  // Keep latest 2000 matches in storage to allow for long-term historical CSV generation
-  const updated = [match, ...history.filter((m) => m.id !== match.id)].slice(0, 2000);
+  // Filter out any existing record with the same ID
+  const filtered = history.filter((m) => m.id !== match.id);
+  // Keep chronological order: append new matches at the bottom (latest at the end)
+  const updated = [...filtered, match].slice(-2000);
   await storage.setItem(HISTORY_KEY, updated);
 }
 
 export async function getMatchHistory(): Promise<MatchRecord[]> {
   const saved = await storage.getItem<MatchRecord[]>(HISTORY_KEY);
-  return saved || [];
+  if (!saved || saved.length === 0) return [];
+  // Ensure chronological order (oldest first, newest appended at the bottom)
+  return [...saved].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+}
+
+export async function getLatestMatch(): Promise<MatchRecord | null> {
+  const history = await getMatchHistory();
+  if (history.length === 0) return null;
+  return history[history.length - 1];
 }
 
 /**
@@ -88,7 +98,11 @@ export async function importMatchesFromCsv(csvText: string): Promise<number> {
     if (dia && dia.includes('/')) {
       const parts = dia.split('/');
       if (parts.length === 3) {
-        timestamp = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0])).toISOString();
+        const baseDate = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+        // Offset seconds and minutes by row index to strictly preserve spreadsheet row sequence
+        baseDate.setSeconds(i % 60);
+        baseDate.setMinutes(Math.floor(i / 60));
+        timestamp = baseDate.toISOString();
       }
     }
 
@@ -96,6 +110,7 @@ export async function importMatchesFromCsv(csvText: string): Promise<number> {
     const matchResult = res.includes('vitória') ? 'win' : res.includes('derrota') ? 'loss' : res.includes('empate') ? 'draw' : 'unknown';
 
     const parseVal = (str: string) => {
+      if (!str) return undefined;
       const num = parseFloat(str.replace(',', '.'));
       return isNaN(num) ? undefined : num;
     };
@@ -119,15 +134,16 @@ export async function importMatchesFromCsv(csvText: string): Promise<number> {
       format: formato || 'CC',
       notes: observacoes,
       turnsCount: parseInt(turnos, 10) || 0,
-      sideboardCards: sideboard !== '-' ? sideboard.split(', ') : [],
+      sideboardCards: sideboard && sideboard !== '-' ? sideboard.split(', ') : [],
       rawLogs: []
     });
   }
 
   const history = await getMatchHistory();
-  // Merge, avoiding strict duplicates (if possible) - here we just append uniquely generated imported records
-  // For simplicity, we just add them to the end of the history.
-  const merged = [...history, ...newRecords].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 2000);
+  // Merge and sort chronologically (oldest first, newest appended at the bottom)
+  const merged = [...history, ...newRecords]
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    .slice(-2000);
   await storage.setItem(HISTORY_KEY, merged);
   
   return newRecords.length;

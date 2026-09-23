@@ -162,7 +162,7 @@
 
   <button id="export-last-match-btn" type="button" style="
     width: 100%;
-    margin-bottom: 16px;
+    margin-bottom: 10px;
     padding: 10px;
     background: linear-gradient(135deg, #ff7043, #f4511e);
     color: white;
@@ -173,6 +173,8 @@
     cursor: pointer;
     box-shadow: 0 4px 12px rgba(244, 81, 30, 0.3);
   ">📝 Salvar/Exportar Última Partida Jogada</button>
+
+  <div id="export-last-match-status" class="status-msg" style="display: none; margin-top: -4px; margin-bottom: 12px; padding: 6px 10px; border-radius: 6px; font-size: 11px; line-height: 1.4;"></div>
 
   <div class="tabs">
     <div class="tab active" data-target="tab-stats">Estatísticas</div>
@@ -207,8 +209,9 @@
 
     <div style="font-size: 12px; margin-bottom: 8px; font-weight: 600; color: #cfd8dc;">Dados Locais</div>
     
-    <div class="btn-row" style="margin-bottom: 8px;">
-      <button id="export-csv-btn" class="btn btn-primary" style="flex: 2;">📥 Baixar Histórico Único (CSV)</button>
+    <div class="btn-row" style="margin-bottom: 8px; gap: 8px;">
+      <button id="export-csv-btn" class="btn btn-primary" style="flex: 1;">📥 Baixar Histórico (CSV)</button>
+      <button id="export-log-btn" class="btn btn-secondary" style="flex: 1; background: #2f3442; border: 1px solid #4b5563;">📄 Baixar Log (.txt)</button>
     </div>
     
     <div class="form-group" style="margin-top: 12px; background: #242433; padding: 10px; border-radius: 6px; border: 1px dashed #4b5563;">

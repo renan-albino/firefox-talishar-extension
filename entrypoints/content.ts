@@ -19,7 +19,7 @@ import type { MatchRecord, DeckAdjustment } from '../src/types/match';
 import type { SheetsResponse } from '../src/services/sheetsClient';
 
 export default defineContentScript({
-  matches: ['*://*.talishar.net/*'],
+  matches: ['*://*.talishar.net/*', '*://talishar.net/*'],
   async main() {
     console.log('[Talishar Log Exporter] Content script loaded on talishar.net.');
 
@@ -28,15 +28,26 @@ export default defineContentScript({
     let matchEndedHandled = false;
     let modalElement: HTMLElement | null = null;
 
+    // Helper to get or create a CMP-whitelisted container inside document.body so Talishar useAdScript never hides or locks it
+    const getExtensionMountHost = (): HTMLElement => {
+      let host = document.getElementById('sp_message_container_talishar');
+      if (!host || !document.body?.contains(host)) {
+        if (host) host.remove();
+        host = document.createElement('div');
+        host.id = 'sp_message_container_talishar';
+        host.className = 'sp_message_container';
+        host.style.cssText = 'position: static; pointer-events: auto !important; z-index: 2147483647 !important;';
+        (document.body || document.documentElement).appendChild(host);
+      }
+      return host;
+    };
+
     // Helper to open the export dialog
     const openNotesModal = async (matchData: MatchRecord) => {
       // Force remove any old modal so it reconstructs with the correct match data
-      if (modalElement) {
-        if (document.body.contains(modalElement)) {
-          modalElement.remove();
-        }
-        modalElement = null;
-      }
+      const existingInDom = document.getElementById('talishar-export-modal');
+      if (existingInDom) existingInDom.remove();
+      modalElement = null;
 
       const freshSettings = await getSettings();
 
@@ -81,7 +92,8 @@ export default defineContentScript({
       (modalElement as any)._playerName = matchData.player?.name;
       (modalElement as any)._playerAvg = matchData.player?.avgTurnValue;
 
-      document.body.appendChild(modalElement);
+      const host = getExtensionMountHost();
+      host.appendChild(modalElement);
     };
 
     // Helper to show floating trigger button
@@ -90,8 +102,10 @@ export default defineContentScript({
       if (btn) btn.remove();
       
       btn = createFloatingButton(() => {
-        if (modalElement && document.body.contains(modalElement)) {
-          modalElement.style.display = 'flex';
+        if (modalElement && document.contains(modalElement)) {
+          modalElement.style.setProperty('display', 'flex', 'important');
+          modalElement.style.setProperty('visibility', 'visible', 'important');
+          modalElement.style.setProperty('pointer-events', 'auto', 'important');
           return;
         }
 
@@ -114,7 +128,8 @@ export default defineContentScript({
         };
         openNotesModal(merged);
       });
-      document.body.appendChild(btn);
+      const host = getExtensionMountHost();
+      host.appendChild(btn);
     };
 
     // Debounced and throttled page state checker to guarantee 0 lag and eliminate browser slowdown
@@ -123,21 +138,43 @@ export default defineContentScript({
     const performPageCheck = () => {
       checkScheduled = false;
       
+      const combatLogs = parseCombatLogs(document);
       const hasGameOver =
         document.querySelector(
-          '[class*="outcomeVictory"], [class*="OutcomeVictory"], [class*="outcomeDefeat"], [class*="OutcomeDefeat"], [class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="matchResult"], [class*="victory"], [class*="defeat"], [class*="Victory"], [class*="Defeat"]'
-        ) !== null || Array.from(document.querySelectorAll('h1, h2, h3, div')).some(el => {
+          '[class*="outcomeVictory"], [class*="OutcomeVictory"], [class*="outcomeDefeat"], [class*="OutcomeDefeat"], [class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="cardListBox"], [class*="cardListTitle"], [class*="matchResult"], [class*="victory"], [class*="defeat"], [class*="Victory"], [class*="Defeat"], [class*="gameOver"], [class*="GameOver"]'
+        ) !== null ||
+        Array.from(document.querySelectorAll('h1, h2, h3, button, [role="heading"]')).some((el) => {
           const txt = el.textContent?.trim().toLowerCase() || '';
-          return (txt === 'victory' || txt === 'defeat' || txt === 'you win' || txt === 'you lose' || txt === 'game over');
+          return (
+            txt === 'victory' ||
+            txt === 'defeat' ||
+            txt === 'you win' ||
+            txt === 'you lose' ||
+            txt === 'game over' ||
+            txt === 'rematch'
+          );
+        }) ||
+        combatLogs.some((line) => {
+          const l = line.toLowerCase();
+          return (
+            l.includes('conceded') ||
+            l.includes('won the game') ||
+            l.includes('was defeated') ||
+            l.includes('has won the game') ||
+            l.includes('has been defeated')
+          );
         });
 
       const isInLobby = isPreGameLobby(document);
-      const isIngame = document.querySelector('[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"]') !== null;
+      const isIngame =
+        document.querySelector(
+          '[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"]'
+        ) !== null;
 
       let currentState = 'desconhecido';
-      if (hasGameOver && !matchEndedHandled) currentState = 'Fim de Partida (Game Over)';
+      if (matchEndedHandled || hasGameOver) currentState = 'Fim de Partida (Game Over)';
       else if (isInLobby) currentState = 'Lobby / Preparação';
-      else if (isIngame && !matchEndedHandled) currentState = 'Partida em Andamento';
+      else if (isIngame) currentState = 'Partida em Andamento';
 
       // Avoid spamming the console 500 times a second
       if ((window as any)._lastTalisharState !== currentState) {
@@ -145,28 +182,28 @@ export default defineContentScript({
         (window as any)._lastTalisharState = currentState;
       }
 
-      if (hasGameOver || isInLobby || isIngame) {
+      if (hasGameOver || isInLobby || isIngame || matchEndedHandled) {
         browser.runtime.sendMessage({ type: 'UPDATE_STATUS', status: 'active' }).catch(() => {});
       } else {
         browser.runtime.sendMessage({ type: 'UPDATE_STATUS', status: 'error' }).catch(() => {});
       }
 
-      // 1. Pre-game Lobby / In-Game Stage: Reset state if we are no longer in game over screen
-      if (!hasGameOver) {
+      // 1. Pre-game Lobby Stage: Reset state only when returning to the lobby
+      if (isInLobby) {
         if (matchEndedHandled) {
           matchEndedHandled = false;
           modalElement = null;
         }
-        
-        if (isInLobby) {
-          const adjustment = trackLobbyDeckState(document);
-          if ((adjustment.mainDeckCount ?? 0) > 0) {
-            currentDeckAdjustment = adjustment;
-            saveSideboardToStorage(adjustment);
-          }
-          const oldBtn = document.getElementById('talishar-log-export-btn');
-          if (oldBtn) oldBtn.remove();
+
+        const adjustment = trackLobbyDeckState(document);
+        if ((adjustment.mainDeckCount ?? 0) > 0) {
+          currentDeckAdjustment = adjustment;
+          saveSideboardToStorage(adjustment);
         }
+        const oldBtn = document.getElementById('talishar-log-export-btn');
+        if (oldBtn) oldBtn.remove();
+        const oldHost = document.getElementById('sp_message_container_talishar');
+        if (oldHost) oldHost.remove();
       }
 
       // 2. In-game: If InventoryModal opens, capture inventory cards as sideboard
@@ -192,58 +229,50 @@ export default defineContentScript({
       }
 
       // 3. Game Over Stage: Check for victory/defeat or end game container
-      if (!matchEndedHandled) {
-        if (hasGameOver) {
-          const result = parseMatchResult(document);
-          if (
-            result !== 'unknown' ||
-            document.querySelector('[class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="matchResult"]') !== null
-          ) {
-            matchEndedHandled = true;
+      if (!matchEndedHandled && hasGameOver) {
+        matchEndedHandled = true;
 
-            const snapshot = extractMatchRecordFromDom(document);
-            const savedAdjustment = currentDeckAdjustment || getSavedSideboard();
-            const registeredPlayerName = settings.playerName?.trim();
-            const finalPlayerName = registeredPlayerName || snapshot.player?.name || 'Jogador';
+        const snapshot = extractMatchRecordFromDom(document);
+        const savedAdjustment = currentDeckAdjustment || getSavedSideboard();
+        const registeredPlayerName = settings.playerName?.trim();
+        const finalPlayerName = registeredPlayerName || snapshot.player?.name || 'Jogador';
 
-            const completedMatch: MatchRecord = {
-              id: `talishar-${Date.now()}`,
-              timestamp: new Date().toISOString(),
-              player: {
-                hero: snapshot.player?.hero || '-',
-                name: finalPlayerName,
-                avgTurnValue: snapshot.player?.avgTurnValue,
-                fatigue: snapshot.player?.fatigue,
-                maxDamage: snapshot.player?.maxDamage,
-                maxDamageTurn: snapshot.player?.maxDamageTurn,
-              },
-              opponent: snapshot.opponent || { name: 'Oponente', hero: '-' },
-              result: snapshot.result || 'unknown',
-              turnsCount: snapshot.turnsCount || 1,
-              sideboardCards: savedAdjustment?.cardsLeftOut || [],
-              playerEquipment: snapshot.playerEquipment || [],
-              opponentEquipment: snapshot.opponentEquipment || [],
-              notes: '',
-              rawLogs: snapshot.rawLogs || [],
-              format: snapshot.format || 'CC',
-              wentFirst: snapshot.wentFirst,
-              platform: 'Talishar',
-            };
+        const completedMatch: MatchRecord = {
+          id: `talishar-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          player: {
+            hero: snapshot.player?.hero || '-',
+            name: finalPlayerName,
+            avgTurnValue: snapshot.player?.avgTurnValue,
+            fatigue: snapshot.player?.fatigue,
+            maxDamage: snapshot.player?.maxDamage,
+            maxDamageTurn: snapshot.player?.maxDamageTurn,
+          },
+          opponent: snapshot.opponent || { name: 'Oponente', hero: '-' },
+          result: snapshot.result || 'unknown',
+          turnsCount: snapshot.turnsCount || 1,
+          sideboardCards: savedAdjustment?.cardsLeftOut || [],
+          playerEquipment: snapshot.playerEquipment || [],
+          opponentEquipment: snapshot.opponentEquipment || [],
+          notes: '',
+          rawLogs: snapshot.rawLogs || [],
+          format: snapshot.format || 'CC',
+          wentFirst: snapshot.wentFirst,
+          platform: 'Talishar',
+        };
 
-            // AUTO-SAVE to local DB instantly so no data is ever lost
-            saveMatchToHistory(completedMatch).catch(console.error);
+        // AUTO-SAVE to local DB instantly so no data is ever lost
+        saveMatchToHistory(completedMatch).catch(console.error);
 
-            showFloatingButton(completedMatch);
+        showFloatingButton(completedMatch);
 
-            if (settings.autoOpenNotesModal) {
-              openNotesModal(completedMatch);
-            }
-          }
+        if (settings.autoOpenNotesModal) {
+          openNotesModal(completedMatch);
         }
       }
 
       // 4. If match ended and modal is open, poll opponent tab stats at most once per second
-      if (matchEndedHandled && modalElement && document.body.contains(modalElement)) {
+      if (matchEndedHandled && modalElement && document.contains(modalElement)) {
         const stats = parseAverageTurnValues(
           document,
           (modalElement as any)._oppName,
@@ -290,10 +319,10 @@ export default defineContentScript({
       if (target && typeof target.closest === 'function' && target.closest('#talishar-export-modal')) {
         return;
       }
-      if (matchEndedHandled && modalElement && document.body.contains(modalElement)) {
+      if (matchEndedHandled && modalElement && document.contains(modalElement)) {
         [50, 150, 400].forEach((delay) => {
           window.setTimeout(() => {
-            if (!modalElement || !document.body.contains(modalElement)) return;
+            if (!modalElement || !document.contains(modalElement)) return;
             const stats = parseAverageTurnValues(
               document,
               (modalElement as any)._oppName,
@@ -308,27 +337,109 @@ export default defineContentScript({
       }
     });
 
-    browser.runtime.onMessage.addListener((message) => {
+    browser.runtime.onMessage.addListener(async (message: any) => {
       if (message?.type === 'PING_STATUS') {
-        const hasGameOver = document.querySelector('[class*="outcomeVictory"]') !== null || 
-                            document.querySelector('[class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="matchResult"]') !== null;
+        const hasGameOver =
+          document.querySelector('[class*="outcomeVictory"]') !== null ||
+          document.querySelector(
+            '[class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="matchResult"], [class*="victory"], [class*="defeat"], [class*="gameOver"]'
+          ) !== null;
         const isInLobby = isPreGameLobby(document);
-        const isIngame = document.querySelector('[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"]') !== null;
-        
-        return Promise.resolve({ status: (hasGameOver || isInLobby || isIngame) ? 'active' : 'error' });
+        const isIngame =
+          document.querySelector(
+            '[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"]'
+          ) !== null;
+
+        return { status: hasGameOver || isInLobby || isIngame ? 'active' : 'error' };
       }
 
       if (message?.type === 'OPEN_MODAL_LAST_MATCH') {
-        // Fetch the last match from the local DB
-        getMatchHistory().then((history) => {
-          if (history && history.length > 0) {
-            const lastMatch = history[0];
-            showFloatingButton(lastMatch);
-            openNotesModal(lastMatch);
+        try {
+          // 1. Try to extract current match on screen if there is an active/finished game
+          const domSnapshot = extractMatchRecordFromDom(document);
+          const hasDomGame = Boolean(
+            (domSnapshot.player?.hero && domSnapshot.player.hero !== '-') ||
+            (domSnapshot.opponent?.hero && domSnapshot.opponent.hero !== '-') ||
+            (domSnapshot.turnsCount && domSnapshot.turnsCount > 1) ||
+            (domSnapshot.rawLogs && domSnapshot.rawLogs.length > 0)
+          );
+
+          let targetMatch: MatchRecord | null = null;
+
+          if (hasDomGame) {
+            const savedAdjustment = currentDeckAdjustment || getSavedSideboard();
+            const currentSettings = await getSettings();
+            const registeredPlayerName = currentSettings.playerName?.trim();
+            const finalPlayerName = registeredPlayerName || domSnapshot.player?.name || 'Jogador';
+            targetMatch = {
+              id: `talishar-${Date.now()}`,
+              timestamp: new Date().toISOString(),
+              player: {
+                hero: domSnapshot.player?.hero || '-',
+                name: finalPlayerName,
+                avgTurnValue: domSnapshot.player?.avgTurnValue,
+                fatigue: domSnapshot.player?.fatigue,
+                maxDamage: domSnapshot.player?.maxDamage,
+                maxDamageTurn: domSnapshot.player?.maxDamageTurn,
+              },
+              opponent: domSnapshot.opponent || { name: 'Oponente', hero: '-' },
+              result: domSnapshot.result || 'unknown',
+              turnsCount: domSnapshot.turnsCount || 1,
+              sideboardCards: savedAdjustment?.cardsLeftOut || [],
+              playerEquipment: domSnapshot.playerEquipment || [],
+              opponentEquipment: domSnapshot.opponentEquipment || [],
+              notes: '',
+              rawLogs: domSnapshot.rawLogs || [],
+              format: domSnapshot.format || 'CC',
+              wentFirst: domSnapshot.wentFirst,
+              platform: 'Talishar',
+            };
+            // Ensure saved into history
+            await saveMatchToHistory(targetMatch);
+          } else {
+            const history = await getMatchHistory();
+            if (history && history.length > 0) {
+              targetMatch = history[history.length - 1];
+            } else {
+              // Fallback: Create a draft/editable match so the modal always opens
+              const currentSettings = await getSettings();
+              targetMatch = {
+                id: `talishar-${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                player: {
+                  hero: domSnapshot.player?.hero || '-',
+                  name: currentSettings.playerName?.trim() || domSnapshot.player?.name || 'Jogador',
+                },
+                opponent: domSnapshot.opponent || { name: 'Oponente', hero: '-' },
+                result: 'unknown',
+                turnsCount: 1,
+                sideboardCards: [],
+                playerEquipment: [],
+                opponentEquipment: [],
+                notes: '',
+                rawLogs: domSnapshot.rawLogs || [],
+                format: 'CC',
+                wentFirst: false,
+                platform: 'Talishar',
+              };
+            }
           }
-        }).catch(console.error);
-        return Promise.resolve(true);
+
+          showFloatingButton(targetMatch);
+          await openNotesModal(targetMatch);
+          return { success: true };
+        } catch (err: any) {
+          console.error('[Talishar Log Exporter] Erro ao abrir modal:', err);
+          return { success: false, reason: err?.message || 'Erro inesperado ao abrir o modal.' };
+        }
       }
+
+      if (message?.type === 'GET_CURRENT_MATCH') {
+        const domSnapshot = extractMatchRecordFromDom(document);
+        return { success: true, match: domSnapshot };
+      }
+
+      return undefined;
     });
   },
 });

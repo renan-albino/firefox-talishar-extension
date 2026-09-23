@@ -32,29 +32,57 @@ function formatDecimal(val?: number): string {
 export function createExportModal(options: ModalOptions): HTMLElement {
   const { match, webhookUrl, spreadsheetUrl, onSaveToSheets, onRefreshStats, onClose } = options;
 
+  const existingModal = document.getElementById('talishar-export-modal');
+  if (existingModal) existingModal.remove();
+
   const overlay = document.createElement('div');
   overlay.id = 'talishar-export-modal';
+
+  // React portal signature so Talishar useAdScript passes isReactPortalEl()
+  (overlay as any).__reactFiber$talishar = true;
+  (overlay as any).__reactProps$talishar = true;
+  try {
+    if ((overlay as any).wrappedJSObject) {
+      (overlay as any).wrappedJSObject.__reactFiber$talishar = true;
+      (overlay as any).wrappedJSObject.__reactProps$talishar = true;
+    }
+  } catch {}
+
   overlay.style.cssText = `
     position: fixed;
     top: 0;
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(10, 10, 15, 0.45);
+    background: rgba(10, 10, 15, 0.55);
     backdrop-filter: blur(2px);
-    display: flex;
+    display: flex !important;
     align-items: center;
     justify-content: center;
     z-index: 2147483647 !important;
-    pointer-events: none;
+    pointer-events: auto !important;
+    visibility: visible !important;
+    opacity: 1 !important;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   `;
 
-  const isWin = match.result === 'win';
-  const resultColor = isWin ? '#10b981' : match.result === 'loss' ? '#ef4444' : '#f59e0b';
-  const resultLabel = isWin ? 'Vitória' : match.result === 'loss' ? 'Derrota' : 'Empate';
+  const isWin = match?.result === 'win';
+  const isLoss = match?.result === 'loss';
+  const resultColor = isWin ? '#10b981' : isLoss ? '#ef4444' : '#f59e0b';
+  const resultLabel = isWin ? 'Vitória' : isLoss ? 'Derrota' : match?.result === 'draw' ? 'Empate' : 'Desconhecido';
 
   const container = document.createElement('div');
+
+  // React portal signature so Talishar useAdScript passes isReactPortalEl()
+  (container as any).__reactFiber$talishar = true;
+  (container as any).__reactProps$talishar = true;
+  try {
+    if ((container as any).wrappedJSObject) {
+      (container as any).wrappedJSObject.__reactFiber$talishar = true;
+      (container as any).wrappedJSObject.__reactProps$talishar = true;
+    }
+  } catch {}
+
   container.style.cssText = `
     background: #181822;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -67,14 +95,17 @@ export function createExportModal(options: ModalOptions): HTMLElement {
     color: #f3f4f6;
     padding: 24px;
     box-sizing: border-box;
-    pointer-events: auto;
+    pointer-events: auto !important;
+    visibility: visible !important;
+    opacity: 1 !important;
     position: absolute;
     top: 5vh;
     left: 50%;
     transform: translateX(-50%);
   `;
 
-  const hasOpponentAvg = match.opponent.avgTurnValue !== undefined && !isNaN(match.opponent.avgTurnValue);
+  const hasOpponentAvg = match?.opponent?.avgTurnValue !== undefined && !isNaN(match.opponent.avgTurnValue);
+  const timeString = match?.timestamp ? new Date(match.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
 
   container.innerHTML = `
     <div id="modal-drag-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; cursor: grab;">
@@ -99,15 +130,15 @@ export function createExportModal(options: ModalOptions): HTMLElement {
     <!-- Match Summary Card -->
     <div style="background: #232332; border-radius: 8px; padding: 14px; margin-bottom: 16px; border-left: 4px solid ${resultColor};">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <span style="font-weight: 700; font-size: 15px; color: ${resultColor};">${resultLabel} (${match.turnsCount} turnos)</span>
-        <span style="font-size: 12px; color: #9ca3af;">${new Date(match.timestamp).toLocaleTimeString()}</span>
+        <span style="font-weight: 700; font-size: 15px; color: ${resultColor};">${resultLabel} (${match?.turnsCount ?? 1} turnos)</span>
+        <span style="font-size: 12px; color: #9ca3af;">${timeString}</span>
       </div>
       <div style="font-size: 13px; margin-bottom: 8px;">
-        <strong>${match.player.hero || 'Meu Herói'}</strong> <em>vs</em> <strong>${match.opponent.hero || 'Herói Oponente'}</strong>
+        <strong>${match?.player?.hero || 'Meu Herói'}</strong> <em>vs</em> <strong>${match?.opponent?.hero || 'Herói Oponente'}</strong>
       </div>
       <div style="display: flex; gap: 16px; font-size: 12px; color: #d1d5db;">
-        <div>Meu Valor Médio/Turno: <strong style="color: #6ee7b7;">${formatDecimal(match.player.avgTurnValue)}</strong></div>
-        <div>Oponente: <strong id="modal-opp-value" style="color: #fca5a5;">${formatDecimal(match.opponent.avgTurnValue)}</strong></div>
+        <div>Meu Valor Médio/Turno: <strong style="color: #6ee7b7;">${formatDecimal(match?.player?.avgTurnValue)}</strong></div>
+        <div>Oponente: <strong id="modal-opp-value" style="color: #fca5a5;">${formatDecimal(match?.opponent?.avgTurnValue)}</strong></div>
       </div>
 
       <!-- Opponent Stats Banner / Instruction -->
@@ -162,7 +193,7 @@ export function createExportModal(options: ModalOptions): HTMLElement {
         <label style="display: block; font-size: 12px; font-weight: 600; color: #e5e7eb; margin-bottom: 6px;">
           Jogador:
         </label>
-        <input type="text" id="modal-player-name-input" value="${match.player.name || 'Jogador'}" style="
+        <input type="text" id="modal-player-name-input" value="${match?.player?.name || 'Jogador'}" style="
           width: 100%;
           box-sizing: border-box;
           background: #232332;
@@ -187,9 +218,9 @@ export function createExportModal(options: ModalOptions): HTMLElement {
           padding: 8px 10px;
           font-size: 13px;
         ">
-          <option value="true" ${match.wentFirst ? 'selected' : ''}>Sim (Turno 1 meu)</option>
-          <option value="false" ${match.wentFirst === false ? 'selected' : ''}>Não (Turno 1 oponente)</option>
-          <option value="" ${match.wentFirst === undefined ? 'selected' : ''}>Não especificado (-)</option>
+          <option value="true" ${match?.wentFirst ? 'selected' : ''}>Sim (Turno 1 meu)</option>
+          <option value="false" ${match?.wentFirst === false ? 'selected' : ''}>Não (Turno 1 oponente)</option>
+          <option value="" ${match?.wentFirst === undefined ? 'selected' : ''}>Não especificado (-)</option>
         </select>
       </div>
     </div>
@@ -200,7 +231,7 @@ export function createExportModal(options: ModalOptions): HTMLElement {
         <label style="display: block; font-size: 12px; font-weight: 600; color: #6ee7b7; margin-bottom: 6px;">
           Meu Valor Médio/Turno:
         </label>
-        <input type="text" id="modal-player-avg-input" value="${match.player.avgTurnValue !== undefined ? formatDecimal(match.player.avgTurnValue) : ''}" placeholder="Ex: 14,8" style="
+        <input type="text" id="modal-player-avg-input" value="${match?.player?.avgTurnValue !== undefined ? formatDecimal(match.player.avgTurnValue) : ''}" placeholder="Ex: 14,8" style="
           width: 100%;
           box-sizing: border-box;
           background: #232332;
@@ -216,7 +247,7 @@ export function createExportModal(options: ModalOptions): HTMLElement {
         <label style="display: block; font-size: 12px; font-weight: 600; color: #fca5a5; margin-bottom: 6px;">
           Valor Médio/Turno Oponente:
         </label>
-        <input type="text" id="modal-opp-avg-input" value="${match.opponent.avgTurnValue !== undefined ? formatDecimal(match.opponent.avgTurnValue) : ''}" placeholder="Ex: 11,33" style="
+        <input type="text" id="modal-opp-avg-input" value="${match?.opponent?.avgTurnValue !== undefined ? formatDecimal(match.opponent.avgTurnValue) : ''}" placeholder="Ex: 11,33" style="
           width: 100%;
           box-sizing: border-box;
           background: #232332;
@@ -353,9 +384,7 @@ export function createExportModal(options: ModalOptions): HTMLElement {
     </div>
   `;
 
-  overlay.appendChild(container);
-
-  let opponentAvgVal = match.opponent.avgTurnValue;
+  let opponentAvgVal = match?.opponent?.avgTurnValue;
 
   const updateOpponentAvg = (newVal?: number) => {
     if (newVal !== undefined && newVal !== null && !isNaN(newVal)) {
@@ -570,5 +599,18 @@ export function createExportModal(options: ModalOptions): HTMLElement {
   }
 
   overlay.appendChild(container);
+
+  // Guard overlay and container against external scripts attempting to hide or disable them
+  if (typeof MutationObserver !== 'undefined') {
+    const guard = new MutationObserver(() => {
+      if (overlay.style.visibility === 'hidden') overlay.style.setProperty('visibility', 'visible', 'important');
+      if (overlay.style.pointerEvents === 'none') overlay.style.setProperty('pointer-events', 'auto', 'important');
+      if (container.style.visibility === 'hidden') container.style.setProperty('visibility', 'visible', 'important');
+      if (container.style.pointerEvents === 'none') container.style.setProperty('pointer-events', 'auto', 'important');
+    });
+    guard.observe(overlay, { attributes: true, attributeFilter: ['style'] });
+    guard.observe(container, { attributes: true, attributeFilter: ['style'] });
+  }
+
   return overlay;
 }

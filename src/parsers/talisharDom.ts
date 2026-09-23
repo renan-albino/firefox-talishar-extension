@@ -581,29 +581,106 @@ export function parseAverageTurnValues(
 }
 
 /**
- * Determines the match result (win/loss/draw) from victory or defeat indicators.
+ * Determines the match result (win/loss/draw) from victory or defeat indicators,
+ * dialogs, and combat log lines (including concessions and game won announcements).
  */
-export function parseMatchResult(doc: Document): MatchResult {
-  const victoryEl = doc.querySelector('[class*="outcomeVictory"], [class*="OutcomeVictory"], [class*="victory"], [class*="Victory"]');
+export function parseMatchResult(
+  doc: Document,
+  logs?: string[],
+  playerName?: string,
+  opponentName?: string
+): MatchResult {
+  const victoryEl = doc.querySelector(
+    '[class*="outcomeVictory"], [class*="OutcomeVictory"], [class*="victory"], [class*="Victory"]'
+  );
   if (victoryEl) return 'win';
 
-  const defeatEl = doc.querySelector('[class*="outcomeDefeat"], [class*="OutcomeDefeat"], [class*="defeat"], [class*="Defeat"]');
+  const defeatEl = doc.querySelector(
+    '[class*="outcomeDefeat"], [class*="OutcomeDefeat"], [class*="defeat"], [class*="Defeat"]'
+  );
   if (defeatEl) return 'loss';
 
   // Fallback to text searching in game dialogs or end screen
-  const endContainer = doc.querySelector('[class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="matchResult"]');
+  const endContainer = doc.querySelector(
+    '[class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="matchResult"], [class*="modal"], [class*="dialog"]'
+  );
   if (endContainer) {
     const text = (endContainer.textContent || '').toUpperCase();
     if (text.includes('VICTORY') || text.includes('YOU WIN')) return 'win';
     if (text.includes('DEFEAT') || text.includes('YOU LOSE')) return 'loss';
   }
 
-  // Extreme fallback: check all headings
-  const headings = Array.from(doc.querySelectorAll('h1, h2, h3'));
+  // Extreme fallback: check all headings and button texts
+  const headings = Array.from(doc.querySelectorAll('h1, h2, h3, [role="heading"], button, p, span'));
   for (const h of headings) {
-    const txt = h.textContent?.toUpperCase() || '';
-    if (txt.includes('VICTORY') || txt.includes('YOU WIN')) return 'win';
-    if (txt.includes('DEFEAT') || txt.includes('YOU LOSE')) return 'loss';
+    const txt = h.textContent?.trim().toUpperCase() || '';
+    if (txt === 'VICTORY' || txt === 'YOU WIN') return 'win';
+    if (txt === 'DEFEAT' || txt === 'YOU LOSE') return 'loss';
+  }
+
+  // Check combat logs for game endings and concessions
+  const logLines = logs && logs.length > 0 ? logs : parseCombatLogs(doc);
+  if (logLines && logLines.length > 0) {
+    const pLower = playerName?.toLowerCase().trim();
+    const oLower = opponentName?.toLowerCase().trim();
+
+    // Check last 30 log lines in reverse (newest first)
+    const recentLogs = [...logLines].slice(-30).reverse();
+
+    for (const line of recentLogs) {
+      const lower = line.toLowerCase();
+
+      // Check concession
+      if (
+        lower.includes('conceded') ||
+        lower.includes('concede') ||
+        lower.includes('conceded the game') ||
+        lower.includes('conceded the match')
+      ) {
+        if (oLower && lower.includes(oLower)) {
+          return 'win';
+        }
+        if (pLower && lower.includes(pLower)) {
+          return 'loss';
+        }
+      }
+
+      // Check "won the game" / "has won the game" / "won the match"
+      if (
+        lower.includes('won the game') ||
+        lower.includes('has won the game') ||
+        lower.includes('won the match') ||
+        lower.includes('has won the match')
+      ) {
+        if (pLower && lower.includes(pLower)) {
+          return 'win';
+        }
+        if (oLower && lower.includes(oLower)) {
+          return 'loss';
+        }
+      }
+
+      // Check "was defeated" / "has been defeated" / "has lost the game"
+      if (
+        lower.includes('was defeated') ||
+        lower.includes('has been defeated') ||
+        lower.includes('has lost the game')
+      ) {
+        if (oLower && lower.includes(oLower)) {
+          return 'win';
+        }
+        if (pLower && lower.includes(pLower)) {
+          return 'loss';
+        }
+      }
+
+      if (lower === 'victory' || lower === 'victory!' || lower.includes('you are victorious')) {
+        return 'win';
+      }
+      if (lower === 'defeat' || lower === 'defeat!' || lower.includes('you were defeated')) {
+        return 'loss';
+      }
+    }
   }
 
   return 'unknown';
@@ -758,7 +835,7 @@ export function extractMatchRecordFromDom(doc: Document = document): Partial<Mat
   const { playerHero, opponentHero } = parseHeroNames(doc);
   const rawLogs = parseCombatLogs(doc);
   const turnsCount = parseTurnCount(doc, rawLogs);
-  const result = parseMatchResult(doc);
+  const result = parseMatchResult(doc, rawLogs, playerName, oppName);
   const wentFirst = parseWentFirst(rawLogs, playerName, oppName);
   const { playerAvgTurnValue, opponentAvgTurnValue } = parseAverageTurnValues(
     doc,
