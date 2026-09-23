@@ -16,7 +16,7 @@ export function createFloatingButton(onClick: () => void): HTMLElement {
     left: auto !important;
     width: auto !important;
     max-width: fit-content;
-    z-index: 999990;
+    z-index: 2147483647 !important;
     display: flex;
     align-items: center;
     gap: 6px;

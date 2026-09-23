@@ -45,7 +45,7 @@ export function createExportModal(options: ModalOptions): HTMLElement {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 999999;
+    z-index: 2147483647 !important;
     pointer-events: none;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   `;

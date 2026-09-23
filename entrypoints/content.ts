@@ -86,34 +86,34 @@ export default defineContentScript({
     // Helper to show floating trigger button
     const showFloatingButton = (matchData: MatchRecord) => {
       let btn = document.getElementById('talishar-log-export-btn');
-      if (!btn) {
-        btn = createFloatingButton(() => {
-          if (modalElement && document.body.contains(modalElement)) {
-            modalElement.style.display = 'flex';
-            return;
-          }
+      if (btn) btn.remove();
+      
+      btn = createFloatingButton(() => {
+        if (modalElement && document.body.contains(modalElement)) {
+          modalElement.style.display = 'flex';
+          return;
+        }
 
-          // Re-extract latest stats (e.g. if average turn value or outcome refreshed)
-          const latestSnapshot = extractMatchRecordFromDom(document);
-          const savedAdjustment = currentDeckAdjustment || getSavedSideboard();
-          const merged: MatchRecord = {
-            ...matchData,
-            ...latestSnapshot,
-            player: {
-              ...matchData.player,
-              ...(latestSnapshot.player || {}),
-            },
-            opponent: {
-              ...matchData.opponent,
-              ...(latestSnapshot.opponent || {}),
-            },
-            sideboardCards: savedAdjustment?.cardsLeftOut || matchData.sideboardCards || [],
-            rawLogs: latestSnapshot.rawLogs || [],
-          };
-          openNotesModal(merged);
-        });
-        document.body.appendChild(btn);
-      }
+        // Re-extract latest stats (e.g. if average turn value or outcome refreshed)
+        const latestSnapshot = extractMatchRecordFromDom(document);
+        const savedAdjustment = currentDeckAdjustment || getSavedSideboard();
+        const merged: MatchRecord = {
+          ...matchData,
+          ...latestSnapshot,
+          player: {
+            ...matchData.player,
+            ...(latestSnapshot.player || {}),
+          },
+          opponent: {
+            ...matchData.opponent,
+            ...(latestSnapshot.opponent || {}),
+          },
+          sideboardCards: savedAdjustment?.cardsLeftOut || matchData.sideboardCards || [],
+          rawLogs: latestSnapshot.rawLogs || [],
+        };
+        openNotesModal(merged);
+      });
+      document.body.appendChild(btn);
     };
 
     // Debounced and throttled page state checker to guarantee 0 lag and eliminate browser slowdown
