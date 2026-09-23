@@ -130,6 +130,15 @@ export default defineContentScript({
           return (txt === 'victory' || txt === 'defeat' || txt === 'you win' || txt === 'you lose' || txt === 'game over' || txt.includes('average value per turn'));
         });
 
+      const isInLobby = isPreGameLobby(document);
+      const isIngame = document.querySelector('[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"]') !== null;
+
+      if (hasGameOver || isInLobby || isIngame) {
+        browser.runtime.sendMessage({ type: 'UPDATE_STATUS', status: 'active' }).catch(() => {});
+      } else {
+        browser.runtime.sendMessage({ type: 'UPDATE_STATUS', status: 'error' }).catch(() => {});
+      }
+
       // 1. Pre-game Lobby / In-Game Stage: Reset state if we are no longer in game over screen
       if (!hasGameOver) {
         if (matchEndedHandled) {
@@ -137,7 +146,7 @@ export default defineContentScript({
           modalElement = null;
         }
         
-        if (isPreGameLobby(document)) {
+        if (isInLobby) {
           const adjustment = trackLobbyDeckState(document);
           if ((adjustment.mainDeckCount ?? 0) > 0) {
             currentDeckAdjustment = adjustment;
@@ -278,6 +287,17 @@ export default defineContentScript({
             }
           }, delay);
         });
+      }
+    });
+
+    browser.runtime.onMessage.addListener((message) => {
+      if (message?.type === 'PING_STATUS') {
+        const hasGameOver = document.querySelector('[class*="outcomeVictory"]') !== null || 
+                            document.querySelector('[class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="matchResult"]') !== null;
+        const isInLobby = isPreGameLobby(document);
+        const isIngame = document.querySelector('[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"]') !== null;
+        
+        return Promise.resolve({ status: (hasGameOver || isInLobby || isIngame) ? 'active' : 'error' });
       }
     });
   },

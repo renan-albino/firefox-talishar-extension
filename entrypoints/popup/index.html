@@ -52,6 +52,25 @@
     .mm-pm-col { text-align: center; flex: 1; }
     .mm-pm-title { font-size: 11px; font-weight: 600; cursor: help; border-bottom: 1px dotted #9ca3af; padding-bottom: 2px; }
 
+    #live-status-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 14px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #374151;
+      color: #9ca3af;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #9ca3af;
+    }
+
     /* Forms */
     .form-group {
       margin-bottom: 12px;
@@ -135,6 +154,11 @@
 </head>
 <body>
   <h1>⚔️ Talishar Log Exporter</h1>
+
+  <div id="live-status-banner">
+    <div class="status-dot" id="live-status-dot"></div>
+    <span id="live-status-text">Verificando status do Talishar...</span>
+  </div>
 
   <div class="tabs">
     <div class="tab active" data-target="tab-stats">Estatísticas</div>

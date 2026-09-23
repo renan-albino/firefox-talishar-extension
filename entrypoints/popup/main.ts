@@ -108,6 +108,51 @@ async function init() {
     });
   });
 
+  // Check live status
+  try {
+    const activeTabs = await browser.tabs.query({ active: true, currentWindow: true });
+    const currentTab = activeTabs[0];
+    const banner = document.getElementById('live-status-banner');
+    const dot = document.getElementById('live-status-dot');
+    const txt = document.getElementById('live-status-text');
+    
+    if (currentTab && banner && dot && txt) {
+      if (!currentTab.url?.includes('talishar.net')) {
+        banner.style.background = '#374151';
+        banner.style.color = '#9ca3af';
+        dot.style.background = '#9ca3af';
+        txt.textContent = 'Fora do site Talishar (Inativo)';
+      } else {
+        // Send a ping message to the content script in this tab
+        try {
+          const res = await browser.tabs.sendMessage(currentTab.id!, { type: 'PING_STATUS' });
+          if (res?.status === 'active') {
+            banner.style.background = 'rgba(16, 185, 129, 0.15)';
+            banner.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+            banner.style.color = '#10b981';
+            dot.style.background = '#10b981';
+            txt.textContent = 'Conectado: Lendo dados da partida';
+          } else {
+            banner.style.background = 'rgba(239, 68, 68, 0.15)';
+            banner.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+            banner.style.color = '#ef4444';
+            dot.style.background = '#ef4444';
+            txt.textContent = 'Aguardando partida (Erro / Não Detectado)';
+          }
+        } catch {
+          // No response from content script
+          banner.style.background = 'rgba(239, 68, 68, 0.15)';
+          banner.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+          banner.style.color = '#ef4444';
+          dot.style.background = '#ef4444';
+          txt.textContent = 'Falha ao conectar: Atualize a página do Talishar';
+        }
+      }
+    }
+  } catch (err) {
+    // browser.tabs might not be available in some environments
+  }
+
   // Export CSV
   document.getElementById('export-csv-btn')?.addEventListener('click', async () => {
     const history = await getMatchHistory();
