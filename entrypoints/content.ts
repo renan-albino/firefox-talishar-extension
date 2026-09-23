@@ -121,9 +121,18 @@ export default defineContentScript({
 
     const performPageCheck = () => {
       checkScheduled = false;
+      
+      const hasGameOver =
+        document.querySelector(
+          '[class*="outcomeVictory"], [class*="OutcomeVictory"], [class*="outcomeDefeat"], [class*="OutcomeDefeat"], [class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"]'
+        ) !== null;
 
       // 1. Pre-game Lobby Stage: Capture sideboard / deck adjustments
-      if (!matchEndedHandled && isPreGameLobby(document)) {
+      if (!hasGameOver && isPreGameLobby(document)) {
+        if (matchEndedHandled) {
+          matchEndedHandled = false;
+          modalElement = null;
+        }
         const adjustment = trackLobbyDeckState(document);
         if ((adjustment.mainDeckCount ?? 0) > 0) {
           currentDeckAdjustment = adjustment;
@@ -134,7 +143,7 @@ export default defineContentScript({
       }
 
       // 2. In-game: If InventoryModal opens, capture inventory cards as sideboard
-      if (!matchEndedHandled) {
+      if (!matchEndedHandled && !hasGameOver) {
         const inventoryContainer = document.querySelector('[class*="inventory"], [class*="Inventory"]');
         if (inventoryContainer) {
           const inventoryCards = trackInGameInventory(document);
@@ -157,11 +166,6 @@ export default defineContentScript({
 
       // 3. Game Over Stage: Check for victory/defeat or end game container
       if (!matchEndedHandled) {
-        const hasGameOver =
-          document.querySelector(
-            '[class*="outcomeVictory"], [class*="OutcomeVictory"], [class*="outcomeDefeat"], [class*="OutcomeDefeat"], [class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"]'
-          ) !== null;
-
         if (hasGameOver) {
           const result = parseMatchResult(document);
           if (
