@@ -15,7 +15,7 @@ Extensão de navegador para o Firefox desenvolvida com [WXT](https://wxt.dev/) e
 - **Exportação e Importação em CSV (Excel PT-BR)**: Gera arquivos com cabeçalho UTF-8 BOM (`\uFEFF`) e delimitador ponto-e-vírgula (`;`), abrindo diretamente no Excel sem caracteres corrompidos. Ordenado cronologicamente com **novos jogos anexados sempre nas linhas de baixo**, preservando a sequência original de planilhas importadas.
 - **Estrutura de Colunas Padronizada**:
   1. `Dia` | 2. `Jogador` | 3. `Deck` | 4. `Match` (herói do oponente) | 5. `Formato` | 6. `Resultado` | 7. `Iniciou` | 8. `Plataforma de Jogo` | 9. `Adversário` | 10. `Observações` | 11. `Turnos` | 12. `Meu Valor Médio/Turno` | 13. `Valor Médio/Turno Oponente` | 14. `Cartas Fora/Sideboard`
-- **Modal de Notas Pós-Partida & Botão Flutuante**: Botão compacto no canto superior direito ao fim da partida (e acionável pelo popup) com injeção segura (compatível com Talishar FE) que abre o modal para registrar notas, revisar estatísticas e exportar.
+- **Janela Nativa Dedicada de Exportação & Botão Flutuante**: Ao término da partida ou ao clicar em "Salvar/Exportar Última Partida" no popup da extensão, uma janela flutuante nativa da extensão (`/export.html`) é gerada automaticamente via `browser.windows.create()`. Isso elimina qualquer conflito de DOM/CSS do site do Talishar, permitindo registrar anotações, conferir estatísticas do oponente, salvar diretamente no Google Sheets e baixar arquivos CSV/TXT com 100% de estabilidade.
 
 ---
 

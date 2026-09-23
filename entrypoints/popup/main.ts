@@ -170,28 +170,46 @@ async function init() {
 
   exportLastMatchBtn?.addEventListener('click', async () => {
     try {
-      const activeTabs = await browser.tabs.query({ active: true, currentWindow: true });
-      const currentTab = activeTabs[0];
-      if (currentTab && currentTab.url?.includes('talishar.net')) {
-        exportLastMatchBtn.innerText = 'Abrindo Painel no Jogo...';
-        const res = (await browser.tabs.sendMessage(currentTab.id!, { type: 'OPEN_MODAL_LAST_MATCH' })) as
-          | { success?: boolean; reason?: string }
-          | undefined;
+      exportLastMatchBtn.innerText = 'Abrindo Janela de Exportação... ⏳';
 
-        if (res?.success) {
-          exportLastMatchBtn.innerText = 'Painel Aberto no Jogo! ✅';
-          showExportStatus('Painel aberto com sucesso! Alternando para o jogo...', false);
-          setTimeout(() => window.close(), 800); // close popup
-        } else {
-          exportLastMatchBtn.innerText = '📝 Salvar/Exportar Última Partida Jogada';
-          showExportStatus(res?.reason || 'Não foi possível encontrar a partida na tela ou no histórico.', true);
+      let targetMatch = null;
+
+      // 1. Tentar obter a partida da tela se estiver em uma aba do Talishar
+      try {
+        const activeTabs = await browser.tabs.query({ active: true, currentWindow: true });
+        const currentTab = activeTabs[0];
+        if (currentTab && currentTab.url?.includes('talishar.net')) {
+          const res = (await browser.tabs.sendMessage(currentTab.id!, { type: 'GET_CURRENT_MATCH' })) as
+            | { success?: boolean; match?: any }
+            | undefined;
+          if (res?.success && res.match && ((res.match.player?.hero && res.match.player.hero !== '-') || (res.match.rawLogs && res.match.rawLogs.length > 0))) {
+            targetMatch = res.match;
+          }
         }
-      } else {
-        showExportStatus('⚠️ Abra a aba do Talishar (talishar.net) para visualizar o painel no jogo.', true);
+      } catch {
+        // Ignora erro de aba
       }
-    } catch (err) {
+
+      // 2. Se não encontrou na tela ativa, carregar a última partida salva do histórico
+      if (!targetMatch) {
+        const history = await getMatchHistory();
+        if (history && history.length > 0) {
+          targetMatch = history[history.length - 1];
+        }
+      }
+
+      // 3. Dispara abertura da Janela Nativa Dedicada
+      await browser.runtime.sendMessage({
+        type: 'OPEN_EXPORT_WINDOW',
+        match: targetMatch,
+      });
+
+      exportLastMatchBtn.innerText = 'Janela Aberta! ✅';
+      showExportStatus('Janela de exportação aberta com sucesso!', false);
+      setTimeout(() => window.close(), 600);
+    } catch (err: any) {
       exportLastMatchBtn.innerText = '📝 Salvar/Exportar Última Partida Jogada';
-      showExportStatus('⚠️ Não foi possível conectar ao Talishar. Recarregue a aba do jogo (F5) e tente novamente.', true);
+      showExportStatus(`Erro ao abrir janela: ${err?.message || 'Falha inesperada'}`, true);
     }
   });
 

@@ -58,6 +58,31 @@ export default defineBackground(() => {
       return testSheetsConnection(webhookUrl);
     }
 
+    if (message?.type === 'OPEN_EXPORT_WINDOW') {
+      if (message.match) {
+        try {
+          await browser.storage.local.set({ activeExportMatch: message.match });
+        } catch (e) {
+          console.error('[Talishar Log Exporter] Falha ao gravar partida ativa para exportação:', e);
+        }
+      }
+
+      const exportUrl = browser.runtime.getURL('/export.html');
+      try {
+        await browser.windows.create({
+          url: exportUrl,
+          type: 'popup',
+          width: 640,
+          height: 780,
+        });
+      } catch (err) {
+        console.warn('[Talishar Log Exporter] Falha ao abrir janela popup, abrindo nova aba:', err);
+        await browser.tabs.create({ url: exportUrl });
+      }
+
+      return { success: true };
+    }
+
     return undefined;
   });
 });

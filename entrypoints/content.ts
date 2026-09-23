@@ -102,13 +102,6 @@ export default defineContentScript({
       if (btn) btn.remove();
       
       btn = createFloatingButton(() => {
-        if (modalElement && document.contains(modalElement)) {
-          modalElement.style.setProperty('display', 'flex', 'important');
-          modalElement.style.setProperty('visibility', 'visible', 'important');
-          modalElement.style.setProperty('pointer-events', 'auto', 'important');
-          return;
-        }
-
         // Re-extract latest stats (e.g. if average turn value or outcome refreshed)
         const latestSnapshot = extractMatchRecordFromDom(document);
         const savedAdjustment = currentDeckAdjustment || getSavedSideboard();
@@ -126,6 +119,17 @@ export default defineContentScript({
           sideboardCards: savedAdjustment?.cardsLeftOut || matchData.sideboardCards || [],
           rawLogs: latestSnapshot.rawLogs || [],
         };
+
+        // Dispara abertura da janela dedicada da extensão
+        browser.runtime.sendMessage({ type: 'OPEN_EXPORT_WINDOW', match: merged }).catch(console.error);
+
+        if (modalElement && document.contains(modalElement)) {
+          modalElement.style.setProperty('display', 'flex', 'important');
+          modalElement.style.setProperty('visibility', 'visible', 'important');
+          modalElement.style.setProperty('pointer-events', 'auto', 'important');
+          return;
+        }
+
         openNotesModal(merged);
       });
       const host = getExtensionMountHost();
@@ -267,6 +271,7 @@ export default defineContentScript({
         showFloatingButton(completedMatch);
 
         if (settings.autoOpenNotesModal) {
+          browser.runtime.sendMessage({ type: 'OPEN_EXPORT_WINDOW', match: completedMatch }).catch(console.error);
           openNotesModal(completedMatch);
         }
       }
@@ -426,6 +431,7 @@ export default defineContentScript({
           }
 
           showFloatingButton(targetMatch);
+          browser.runtime.sendMessage({ type: 'OPEN_EXPORT_WINDOW', match: targetMatch }).catch(console.error);
           await openNotesModal(targetMatch);
           return { success: true };
         } catch (err: any) {
