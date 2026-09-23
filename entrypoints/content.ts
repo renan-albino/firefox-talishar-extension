@@ -133,6 +133,17 @@ export default defineContentScript({
       const isInLobby = isPreGameLobby(document);
       const isIngame = document.querySelector('[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"]') !== null;
 
+      let currentState = 'desconhecido';
+      if (hasGameOver && !matchEndedHandled) currentState = 'Fim de Partida (Game Over)';
+      else if (isInLobby) currentState = 'Lobby / Preparação';
+      else if (isIngame && !matchEndedHandled) currentState = 'Partida em Andamento';
+
+      // Avoid spamming the console 500 times a second
+      if ((window as any)._lastTalisharState !== currentState) {
+        console.log(`[Talishar Log Exporter] 🔍 Estado mudou para: ${currentState}`);
+        (window as any)._lastTalisharState = currentState;
+      }
+
       if (hasGameOver || isInLobby || isIngame) {
         browser.runtime.sendMessage({ type: 'UPDATE_STATUS', status: 'active' }).catch(() => {});
       } else {
