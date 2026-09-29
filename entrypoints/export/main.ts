@@ -1,5 +1,5 @@
 import { getSettings, getMatchHistory, saveMatchToHistory } from '../../src/utils/storage';
-import { formatMatchSummaryCsv, formatFullLogText } from '../../src/formatters/csvFormatter';
+import { formatMatchSummaryCsv, formatMatchHistoryCsv, formatFullLogText } from '../../src/formatters/csvFormatter';
 import type { MatchRecord } from '../../src/types/match';
 import type { SheetsResponse } from '../../src/services/sheetsClient';
 
@@ -293,12 +293,14 @@ async function init() {
   });
 
   // Download CSV
-  btnDownloadCsv?.addEventListener('click', () => {
+  btnDownloadCsv?.addEventListener('click', async () => {
     try {
       const updated = getUpdatedMatch();
-      const csv = formatMatchSummaryCsv(updated);
-      triggerDownload(csv, `talishar-${updated.id}.csv`, 'text/csv');
-      setStatus('Download do arquivo CSV iniciado! ✅');
+      await saveMatchToHistory(updated);
+      const history = await getMatchHistory();
+      const csv = formatMatchHistoryCsv(history.length > 0 ? history : [updated]);
+      triggerDownload(csv, 'talishar_historico_partidas.csv', 'text/csv');
+      setStatus('Histórico CSV baixado (com a nova partida na linha final)! ✅');
     } catch (err: any) {
       setStatus(`Erro ao gerar CSV: ${err?.message}`, true);
     }

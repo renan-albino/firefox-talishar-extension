@@ -49,9 +49,21 @@ export function formatTalisharCardName(input: string): string {
  * Checks if the current document is inside the pre-game lobby/sideboard stage.
  */
 export function isPreGameLobby(doc: Document = document): boolean {
+  // If game over is present, it is NEVER the pre-game lobby
+  const hasGameOver = doc.querySelector(
+    '[class*="outcomeVictory"], [class*="OutcomeVictory"], [class*="outcomeDefeat"], [class*="OutcomeDefeat"], [class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"], [class*="cardListBox"], [class*="cardListTitle"], [class*="matchResult"], [class*="victory"], [class*="defeat"], [class*="Victory"], [class*="Defeat"], [class*="gameOver"], [class*="GameOver"]'
+  ) !== null;
+  if (hasGameOver) return false;
+
+  // If in-game combat logs or player boards exist, it is NOT the pre-game lobby
+  const hasInGameElements = doc.querySelector(
+    '[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"]'
+  ) !== null;
+  if (hasInGameElements) return false;
+
   return (
     doc.querySelector(
-      '[class*="deckContainer"], [class*="DeckContainer"], [class*="Lobby"], [class*="lobbyContainer"], [class*="deckCardContainer"]'
+      '[class*="deckContainer"], [class*="DeckContainer"], [class*="Lobby"], [class*="lobbyContainer"]'
     ) !== null
   );
 }

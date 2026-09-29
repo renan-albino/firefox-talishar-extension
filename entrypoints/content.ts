@@ -192,11 +192,15 @@ export default defineContentScript({
         browser.runtime.sendMessage({ type: 'UPDATE_STATUS', status: 'error' }).catch(() => {});
       }
 
-      // 1. Pre-game Lobby Stage: Reset state only when returning to the lobby
-      if (isInLobby) {
-        if (matchEndedHandled) {
+      // 1. Pre-game Lobby Stage: Reset state only when genuinely in a new lobby
+      if (isInLobby && !hasGameOver) {
+        if (matchEndedHandled && !isIngame) {
           matchEndedHandled = false;
           modalElement = null;
+          const oldBtn = document.getElementById('talishar-log-export-btn');
+          if (oldBtn) oldBtn.remove();
+          const oldHost = document.getElementById('sp_message_container_talishar');
+          if (oldHost) oldHost.remove();
         }
 
         const adjustment = trackLobbyDeckState(document);
@@ -204,10 +208,6 @@ export default defineContentScript({
           currentDeckAdjustment = adjustment;
           saveSideboardToStorage(adjustment);
         }
-        const oldBtn = document.getElementById('talishar-log-export-btn');
-        if (oldBtn) oldBtn.remove();
-        const oldHost = document.getElementById('sp_message_container_talishar');
-        if (oldHost) oldHost.remove();
       }
 
       // 2. In-game: If InventoryModal opens, capture inventory cards as sideboard
@@ -270,10 +270,19 @@ export default defineContentScript({
 
         showFloatingButton(completedMatch);
 
-        if (settings.autoOpenNotesModal) {
-          browser.runtime.sendMessage({ type: 'OPEN_EXPORT_WINDOW', match: completedMatch }).catch(console.error);
-          openNotesModal(completedMatch);
-        }
+        // Fetch fresh settings in case user updated them; default to opening the window
+        getSettings().then((freshSettings) => {
+          if (freshSettings.autoOpenNotesModal !== false) {
+            console.log('[Talishar Log Exporter] 🚀 Fim de partida: Abrindo janela de exportação nativa...');
+            browser.runtime.sendMessage({ type: 'OPEN_EXPORT_WINDOW', match: completedMatch }).catch((err) => {
+              console.warn('[Talishar Log Exporter] Erro ao disparar OPEN_EXPORT_WINDOW:', err);
+            });
+            openNotesModal(completedMatch);
+          }
+        }).catch(() => {
+          // Fallback: always trigger export window if settings query fails
+          browser.runtime.sendMessage({ type: 'OPEN_EXPORT_WINDOW', match: completedMatch }).catch(() => {});
+        });
       }
 
       // 4. If match ended and modal is open, poll opponent tab stats at most once per second

@@ -6,7 +6,7 @@ const HISTORY_KEY = 'local:matchHistory';
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   googleSheetsWebhookUrl: '',
-  autoOpenNotesModal: false,
+  autoOpenNotesModal: true,
   exportFormatPreference: 'both',
   playerName: '',
   googleSpreadsheetUrl: '',
@@ -41,8 +41,8 @@ export async function saveMatchToHistory(match: MatchRecord): Promise<void> {
 export async function getMatchHistory(): Promise<MatchRecord[]> {
   const saved = await storage.getItem<MatchRecord[]>(HISTORY_KEY);
   if (!saved || saved.length === 0) return [];
-  // Ensure chronological order (oldest first, newest appended at the bottom)
-  return [...saved].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  // Return in exact sequence with new matches appended at the bottom
+  return saved;
 }
 
 export async function getLatestMatch(): Promise<MatchRecord | null> {
@@ -93,16 +93,27 @@ export async function importMatchesFromCsv(csvText: string): Promise<number> {
       plataforma, adversario, observacoes, turnos, meuValor, oppValor, sideboard
     ] = fields;
 
-    // Convert date string dd/MM/yyyy to ISO
+    // Convert date string dd/MM/yyyy or yyyy-MM-dd to ISO
     let timestamp = new Date().toISOString();
-    if (dia && dia.includes('/')) {
-      const parts = dia.split('/');
-      if (parts.length === 3) {
-        const baseDate = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
-        // Offset seconds and minutes by row index to strictly preserve spreadsheet row sequence
-        baseDate.setSeconds(i % 60);
-        baseDate.setMinutes(Math.floor(i / 60));
-        timestamp = baseDate.toISOString();
+    if (dia) {
+      const cleanDia = dia.replace(/['"]/g, '').trim();
+      if (cleanDia.includes('/')) {
+        const parts = cleanDia.split('/');
+        if (parts.length === 3) {
+          const year = parts[2].length === 2 ? Number(`20${parts[2]}`) : Number(parts[2]);
+          const baseDate = new Date(year, Number(parts[1]) - 1, Number(parts[0]));
+          baseDate.setSeconds(i % 60);
+          baseDate.setMinutes(Math.floor(i / 60) % 60);
+          timestamp = baseDate.toISOString();
+        }
+      } else if (cleanDia.includes('-')) {
+        const parts = cleanDia.split('-');
+        if (parts.length === 3) {
+          const baseDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+          baseDate.setSeconds(i % 60);
+          baseDate.setMinutes(Math.floor(i / 60) % 60);
+          timestamp = baseDate.toISOString();
+        }
       }
     }
 
@@ -140,10 +151,8 @@ export async function importMatchesFromCsv(csvText: string): Promise<number> {
   }
 
   const history = await getMatchHistory();
-  // Merge and sort chronologically (oldest first, newest appended at the bottom)
-  const merged = [...history, ...newRecords]
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-    .slice(-2000);
+  // Preserve exact CSV sequence and append to history with new games at the bottom
+  const merged = [...history, ...newRecords].slice(-2000);
   await storage.setItem(HISTORY_KEY, merged);
   
   return newRecords.length;

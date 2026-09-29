@@ -8,7 +8,7 @@ export default defineConfig({
     name: 'Talishar Log Exporter',
     description: 'Capture combat logs from Talishar.net and export to PT-BR Excel CSV or Google Sheets',
     version: '0.1.1',
-    permissions: ['storage', 'downloads'],
+    permissions: ['storage', 'downloads', 'tabs'],
     host_permissions: [
       '*://*.talishar.net/*',
       '*://talishar.net/*',

@@ -35,7 +35,12 @@ Replaced fragile in-page DOM injection on Talishar.net with a dedicated native W
 4. **Content Script Trigger (`entrypoints/content.ts`)**:
    - `showFloatingButton` click handler dispatches `OPEN_EXPORT_WINDOW` with latest merged game snapshot.
    - Game Over detection dispatches `OPEN_EXPORT_WINDOW` automatically when `autoOpenNotesModal` is enabled.
-5. **Testing & Verification**:
+5. **Follow-up: Auto-Open Default, Game Over State Protection & Chronological CSV Bottom-Row Append**:
+   - **Auto-Open Default**: Changed `DEFAULT_SETTINGS.autoOpenNotesModal` from `false` to `true` and updated `content.ts` to fetch fresh settings on match conclusion so the export window opens automatically at Game Over without requiring manual configuration.
+   - **Game Over State Protection**: Fixed `isPreGameLobby` in `sideboardTracker.ts` to reject when `hasGameOver` or in-game boards are present; prevented post-game deck lists from triggering lobby resets that prematurely deleted the floating button and flipped state to `desconhecido`.
+   - **Permissions & Window Focus**: Added `'tabs'` permission in `wxt.config.ts` and `focused: true` in `browser.windows.create()` to ensure the export window is brought directly to the foreground.
+   - **Chronological History & CSV Download**: In `storage.ts`, removed timestamp re-sorting on read to preserve strict insertion order; updated `importMatchesFromCsv` to keep the exact row sequence from imported files; updated `btnDownloadCsv` in `export/main.ts` to download the consolidated history CSV with the newly played match on the bottom rows.
+6. **Testing & Verification**:
    - Added `src/exportWindow.test.ts` testing data model, decimal formatting, and log/CSV output.
    - All 42 unit tests passing across 9 test suites.
    - TypeScript compiles cleanly (`tsc --noEmit`).

@@ -74,10 +74,11 @@ export default defineBackground(() => {
           type: 'popup',
           width: 640,
           height: 780,
+          focused: true,
         });
       } catch (err) {
         console.warn('[Talishar Log Exporter] Falha ao abrir janela popup, abrindo nova aba:', err);
-        await browser.tabs.create({ url: exportUrl });
+        await browser.tabs.create({ url: exportUrl, active: true });
       }
 
       return { success: true };
