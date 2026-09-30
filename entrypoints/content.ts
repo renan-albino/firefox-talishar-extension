@@ -1,9 +1,13 @@
-import { defineContentScript } from 'wxt/sandbox';
 import {
   extractMatchRecordFromDom,
   parseMatchResult,
   parseCombatLogs,
   parseAverageTurnValues,
+  parseEquipment,
+  parseFatigue,
+  parsePlayerNames,
+  autoCaptureEndGameStats,
+  findSwitchPlayerStatsButton,
 } from '../src/parsers/talisharDom';
 import {
   trackLobbyDeckState,
@@ -27,6 +31,14 @@ export default defineContentScript({
     let currentDeckAdjustment: DeckAdjustment | null = getSavedSideboard();
     let matchEndedHandled = false;
     let modalElement: HTMLElement | null = null;
+
+    // Continuous in-game cache to preserve state even if DOM overlays change
+    let cachedPlayerEquipment: string[] = [];
+    let cachedOpponentEquipment: string[] = [];
+    let cachedPlayerFatigue: number | undefined = undefined;
+    let cachedOpponentFatigue: number | undefined = undefined;
+    let cachedPlayerUsername: string | undefined = undefined;
+    let cachedOpponentUsername: string | undefined = undefined;
 
     // Helper to get or create a CMP-whitelisted container inside document.body so Talishar useAdScript never hides or locks it
     const getExtensionMountHost = (): HTMLElement => {
@@ -56,12 +68,10 @@ export default defineContentScript({
         webhookUrl: freshSettings.googleSheetsWebhookUrl,
         spreadsheetUrl: freshSettings.googleSpreadsheetUrl,
         onRefreshStats: () =>
-          parseAverageTurnValues(
-            document,
-            matchData.opponent?.name,
-            matchData.player?.name,
-            matchData.player?.avgTurnValue
-          ),
+          autoCaptureEndGameStats(document, {
+            opponentNameOrHero: matchData.opponent?.name || matchData.opponent?.hero,
+            playerNameOrHero: matchData.player?.name || matchData.player?.hero,
+          }),
         onSaveToSheets: async (updatedMatch): Promise<SheetsResponse> => {
           try {
             const currentSettings = await getSettings();
@@ -119,9 +129,6 @@ export default defineContentScript({
           sideboardCards: savedAdjustment?.cardsLeftOut || matchData.sideboardCards || [],
           rawLogs: latestSnapshot.rawLogs || [],
         };
-
-        // Dispara abertura da janela dedicada da extensão
-        browser.runtime.sendMessage({ type: 'OPEN_EXPORT_WINDOW', match: merged }).catch(console.error);
 
         if (modalElement && document.contains(modalElement)) {
           modalElement.style.setProperty('display', 'flex', 'important');
@@ -204,14 +211,26 @@ export default defineContentScript({
         }
 
         const adjustment = trackLobbyDeckState(document);
-        if ((adjustment.mainDeckCount ?? 0) > 0) {
+        if ((adjustment.mainDeckCount ?? 0) > 0 || adjustment.cardsLeftOut.length > 0) {
           currentDeckAdjustment = adjustment;
           saveSideboardToStorage(adjustment);
         }
       }
 
-      // 2. In-game: If InventoryModal opens, capture inventory cards as sideboard
-      if (!matchEndedHandled && !hasGameOver) {
+      // 2. In-game live caching: equipment, fatigue, usernames, and inventory
+      if (isIngame && !hasGameOver) {
+        const liveEquip = parseEquipment(document, cachedPlayerEquipment, cachedOpponentEquipment);
+        if (liveEquip.playerEquipment.length > 0) cachedPlayerEquipment = liveEquip.playerEquipment;
+        if (liveEquip.opponentEquipment.length > 0) cachedOpponentEquipment = liveEquip.opponentEquipment;
+
+        const liveFatigue = parseFatigue(document, cachedPlayerFatigue, cachedOpponentFatigue);
+        if (liveFatigue.playerFatigue !== undefined) cachedPlayerFatigue = liveFatigue.playerFatigue;
+        if (liveFatigue.opponentFatigue !== undefined) cachedOpponentFatigue = liveFatigue.opponentFatigue;
+
+        const liveNames = parsePlayerNames(document);
+        if (liveNames.playerUsername) cachedPlayerUsername = liveNames.playerUsername;
+        if (liveNames.opponentUsername) cachedOpponentUsername = liveNames.opponentUsername;
+
         const inventoryContainer = document.querySelector('[class*="inventory"], [class*="Inventory"]');
         if (inventoryContainer) {
           const inventoryCards = trackInGameInventory(document);
@@ -236,53 +255,91 @@ export default defineContentScript({
       if (!matchEndedHandled && hasGameOver) {
         matchEndedHandled = true;
 
-        const snapshot = extractMatchRecordFromDom(document);
-        const savedAdjustment = currentDeckAdjustment || getSavedSideboard();
-        const registeredPlayerName = settings.playerName?.trim();
-        const finalPlayerName = registeredPlayerName || snapshot.player?.name || 'Jogador';
+        (async () => {
+          const snapshot = extractMatchRecordFromDom(document, {
+            cachedPlayerEquipment,
+            cachedOpponentEquipment,
+            cachedPlayerFatigue,
+            cachedOpponentFatigue,
+          });
 
-        const completedMatch: MatchRecord = {
-          id: `talishar-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          player: {
-            hero: snapshot.player?.hero || '-',
-            name: finalPlayerName,
-            avgTurnValue: snapshot.player?.avgTurnValue,
-            fatigue: snapshot.player?.fatigue,
-            maxDamage: snapshot.player?.maxDamage,
-            maxDamageTurn: snapshot.player?.maxDamageTurn,
-          },
-          opponent: snapshot.opponent || { name: 'Oponente', hero: '-' },
-          result: snapshot.result || 'unknown',
-          turnsCount: snapshot.turnsCount || 1,
-          sideboardCards: savedAdjustment?.cardsLeftOut || [],
-          playerEquipment: snapshot.playerEquipment || [],
-          opponentEquipment: snapshot.opponentEquipment || [],
-          notes: '',
-          rawLogs: snapshot.rawLogs || [],
-          format: snapshot.format || 'CC',
-          wentFirst: snapshot.wentFirst,
-          platform: 'Talishar',
-        };
-
-        // AUTO-SAVE to local DB instantly so no data is ever lost
-        saveMatchToHistory(completedMatch).catch(console.error);
-
-        showFloatingButton(completedMatch);
-
-        // Fetch fresh settings in case user updated them; default to opening the window
-        getSettings().then((freshSettings) => {
-          if (freshSettings.autoOpenNotesModal !== false) {
-            console.log('[Talishar Log Exporter] 🚀 Fim de partida: Abrindo janela de exportação nativa...');
-            browser.runtime.sendMessage({ type: 'OPEN_EXPORT_WINDOW', match: completedMatch }).catch((err) => {
-              console.warn('[Talishar Log Exporter] Erro ao disparar OPEN_EXPORT_WINDOW:', err);
+          // Automated capture: click excludeLastTurn (if not checked) and switch player to capture opponent avg
+          let autoStats: { playerAvgTurnValue?: number; opponentAvgTurnValue?: number } = {};
+          try {
+            await new Promise((r) => setTimeout(r, 180));
+            autoStats = await autoCaptureEndGameStats(document, {
+              opponentNameOrHero: snapshot.opponent?.name || snapshot.opponent?.hero,
+              playerNameOrHero: snapshot.player?.name || snapshot.player?.hero,
             });
-            openNotesModal(completedMatch);
+          } catch (e) {
+            console.warn('[Talishar Log Exporter] Erro no autoCaptureEndGameStats inicial:', e);
           }
-        }).catch(() => {
-          // Fallback: always trigger export window if settings query fails
-          browser.runtime.sendMessage({ type: 'OPEN_EXPORT_WINDOW', match: completedMatch }).catch(() => {});
-        });
+
+          const finalPlayerAvg = autoStats.playerAvgTurnValue ?? snapshot.player?.avgTurnValue;
+          const finalOpponentAvg = autoStats.opponentAvgTurnValue ?? snapshot.opponent?.avgTurnValue;
+
+          const savedAdjustment = currentDeckAdjustment || getSavedSideboard();
+          const registeredPlayerName = settings.playerName?.trim();
+          const finalPlayerName = registeredPlayerName || snapshot.player?.name || 'Jogador';
+          const finalPlayerUsername = cachedPlayerUsername || snapshot.player?.username;
+          const finalOpponentUsername = cachedOpponentUsername || snapshot.opponent?.username;
+
+          const completedMatch: MatchRecord = {
+            id: `talishar-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            player: {
+              hero: snapshot.player?.hero || '-',
+              name: finalPlayerName,
+              username: finalPlayerUsername,
+              avgTurnValue: finalPlayerAvg,
+              fatigue: snapshot.player?.fatigue ?? cachedPlayerFatigue,
+              maxDamage: snapshot.player?.maxDamage,
+              maxDamageTurn: snapshot.player?.maxDamageTurn,
+            },
+            opponent: {
+              hero: snapshot.opponent?.hero || '-',
+              name: snapshot.opponent?.name || 'Oponente',
+              username: finalOpponentUsername,
+              avgTurnValue: finalOpponentAvg,
+              fatigue: snapshot.opponent?.fatigue ?? cachedOpponentFatigue,
+              maxDamage: snapshot.opponent?.maxDamage,
+              maxDamageTurn: snapshot.opponent?.maxDamageTurn,
+            },
+            result: snapshot.result || 'unknown',
+            turnsCount: snapshot.turnsCount || 1,
+            sideboardCards: savedAdjustment?.cardsLeftOut || [],
+            playerEquipment:
+              snapshot.playerEquipment && snapshot.playerEquipment.length > 0
+                ? snapshot.playerEquipment
+                : cachedPlayerEquipment,
+            opponentEquipment:
+              snapshot.opponentEquipment && snapshot.opponentEquipment.length > 0
+                ? snapshot.opponentEquipment
+                : cachedOpponentEquipment,
+            notes: '',
+            rawLogs: snapshot.rawLogs || [],
+            format: snapshot.format || 'CC',
+            wentFirst: snapshot.wentFirst,
+            platform: 'Talishar',
+          };
+
+          // AUTO-SAVE to local DB instantly so no data is ever lost
+          saveMatchToHistory(completedMatch).catch(console.error);
+
+          showFloatingButton(completedMatch);
+
+          // Open in-game modal by default, which contains the "Abrir em Janela Separada" button
+          getSettings()
+            .then((freshSettings) => {
+              if (freshSettings.autoOpenNotesModal !== false) {
+                console.log('[Talishar Log Exporter] 🚀 Fim de partida: Abrindo modal no jogo...');
+                openNotesModal(completedMatch);
+              }
+            })
+            .catch(() => {
+              openNotesModal(completedMatch);
+            });
+        })().catch(console.error);
       }
 
       // 4. If match ended and modal is open, poll opponent tab stats at most once per second
@@ -351,6 +408,17 @@ export default defineContentScript({
       }
     });
 
+    // Instant capture when changing checkboxes or radios in lobby
+    document.addEventListener('change', () => {
+      if (isPreGameLobby(document)) {
+        const adjustment = trackLobbyDeckState(document);
+        if ((adjustment.mainDeckCount ?? 0) > 0 || adjustment.cardsLeftOut.length > 0) {
+          currentDeckAdjustment = adjustment;
+          saveSideboardToStorage(adjustment);
+        }
+      }
+    });
+
     browser.runtime.onMessage.addListener(async (message: any) => {
       if (message?.type === 'PING_STATUS') {
         const hasGameOver =
@@ -361,7 +429,7 @@ export default defineContentScript({
         const isInLobby = isPreGameLobby(document);
         const isIngame =
           document.querySelector(
-            '[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"]'
+            '[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"], [class*="pOneDeck"], [class*="pTwoDeck"]'
           ) !== null;
 
         return { status: hasGameOver || isInLobby || isIngame ? 'active' : 'error' };
@@ -370,7 +438,12 @@ export default defineContentScript({
       if (message?.type === 'OPEN_MODAL_LAST_MATCH') {
         try {
           // 1. Try to extract current match on screen if there is an active/finished game
-          const domSnapshot = extractMatchRecordFromDom(document);
+          const domSnapshot = extractMatchRecordFromDom(document, {
+            cachedPlayerEquipment,
+            cachedOpponentEquipment,
+            cachedPlayerFatigue,
+            cachedOpponentFatigue,
+          });
           const hasDomGame = Boolean(
             (domSnapshot.player?.hero && domSnapshot.player.hero !== '-') ||
             (domSnapshot.opponent?.hero && domSnapshot.opponent.hero !== '-') ||
@@ -385,23 +458,41 @@ export default defineContentScript({
             const currentSettings = await getSettings();
             const registeredPlayerName = currentSettings.playerName?.trim();
             const finalPlayerName = registeredPlayerName || domSnapshot.player?.name || 'Jogador';
+            const finalPlayerUsername = cachedPlayerUsername || domSnapshot.player?.username;
+            const finalOpponentUsername = cachedOpponentUsername || domSnapshot.opponent?.username;
+
             targetMatch = {
               id: `talishar-${Date.now()}`,
               timestamp: new Date().toISOString(),
               player: {
                 hero: domSnapshot.player?.hero || '-',
                 name: finalPlayerName,
+                username: finalPlayerUsername,
                 avgTurnValue: domSnapshot.player?.avgTurnValue,
-                fatigue: domSnapshot.player?.fatigue,
+                fatigue: domSnapshot.player?.fatigue ?? cachedPlayerFatigue,
                 maxDamage: domSnapshot.player?.maxDamage,
                 maxDamageTurn: domSnapshot.player?.maxDamageTurn,
               },
-              opponent: domSnapshot.opponent || { name: 'Oponente', hero: '-' },
+              opponent: {
+                hero: domSnapshot.opponent?.hero || '-',
+                name: domSnapshot.opponent?.name || 'Oponente',
+                username: finalOpponentUsername,
+                avgTurnValue: domSnapshot.opponent?.avgTurnValue,
+                fatigue: domSnapshot.opponent?.fatigue ?? cachedOpponentFatigue,
+                maxDamage: domSnapshot.opponent?.maxDamage,
+                maxDamageTurn: domSnapshot.opponent?.maxDamageTurn,
+              },
               result: domSnapshot.result || 'unknown',
               turnsCount: domSnapshot.turnsCount || 1,
               sideboardCards: savedAdjustment?.cardsLeftOut || [],
-              playerEquipment: domSnapshot.playerEquipment || [],
-              opponentEquipment: domSnapshot.opponentEquipment || [],
+              playerEquipment:
+                domSnapshot.playerEquipment && domSnapshot.playerEquipment.length > 0
+                  ? domSnapshot.playerEquipment
+                  : cachedPlayerEquipment,
+              opponentEquipment:
+                domSnapshot.opponentEquipment && domSnapshot.opponentEquipment.length > 0
+                  ? domSnapshot.opponentEquipment
+                  : cachedOpponentEquipment,
               notes: '',
               rawLogs: domSnapshot.rawLogs || [],
               format: domSnapshot.format || 'CC',
@@ -423,13 +514,18 @@ export default defineContentScript({
                 player: {
                   hero: domSnapshot.player?.hero || '-',
                   name: currentSettings.playerName?.trim() || domSnapshot.player?.name || 'Jogador',
+                  username: cachedPlayerUsername,
                 },
-                opponent: domSnapshot.opponent || { name: 'Oponente', hero: '-' },
+                opponent: {
+                  name: domSnapshot.opponent?.name || 'Oponente',
+                  hero: domSnapshot.opponent?.hero || '-',
+                  username: cachedOpponentUsername,
+                },
                 result: 'unknown',
                 turnsCount: 1,
                 sideboardCards: [],
-                playerEquipment: [],
-                opponentEquipment: [],
+                playerEquipment: cachedPlayerEquipment,
+                opponentEquipment: cachedOpponentEquipment,
                 notes: '',
                 rawLogs: domSnapshot.rawLogs || [],
                 format: 'CC',
@@ -440,7 +536,6 @@ export default defineContentScript({
           }
 
           showFloatingButton(targetMatch);
-          browser.runtime.sendMessage({ type: 'OPEN_EXPORT_WINDOW', match: targetMatch }).catch(console.error);
           await openNotesModal(targetMatch);
           return { success: true };
         } catch (err: any) {
@@ -450,7 +545,34 @@ export default defineContentScript({
       }
 
       if (message?.type === 'GET_CURRENT_MATCH') {
-        const domSnapshot = extractMatchRecordFromDom(document);
+        let autoStats: { playerAvgTurnValue?: number; opponentAvgTurnValue?: number } = {};
+        if (
+          document.querySelector(
+            '[class*="excludeLastTurnCheckbox"], [class*="statsContainer"], [class*="endGame"], [class*="EndGameStats"]'
+          ) ||
+          findSwitchPlayerStatsButton(document)
+        ) {
+          try {
+            autoStats = await autoCaptureEndGameStats(document, {
+              opponentNameOrHero: cachedOpponentUsername,
+              playerNameOrHero: cachedPlayerUsername,
+            });
+          } catch (e) {
+            console.warn('[Talishar Log Exporter] Erro no autoCaptureEndGameStats via GET_CURRENT_MATCH:', e);
+          }
+        }
+        const domSnapshot = extractMatchRecordFromDom(document, {
+          cachedPlayerEquipment,
+          cachedOpponentEquipment,
+          cachedPlayerFatigue,
+          cachedOpponentFatigue,
+        });
+        if (autoStats.playerAvgTurnValue !== undefined && domSnapshot.player) {
+          domSnapshot.player.avgTurnValue = autoStats.playerAvgTurnValue;
+        }
+        if (autoStats.opponentAvgTurnValue !== undefined && domSnapshot.opponent) {
+          domSnapshot.opponent.avgTurnValue = autoStats.opponentAvgTurnValue;
+        }
         return { success: true, match: domSnapshot };
       }
 

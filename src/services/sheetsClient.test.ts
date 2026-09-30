@@ -110,4 +110,29 @@ describe('SheetsClient', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('Qualquer pessoa');
   });
+
+  it('should reject URLs with /edit and explicitly instruct changing endpoint to /exec', async () => {
+    const result = await testSheetsConnection('https://script.google.com/macros/s/enderecoscript/edit');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('/edit');
+    expect(result.error).toContain('/exec');
+    expect(result.error).toContain('exclusivamente');
+  });
+
+  it('should reject Google Apps Script URLs that do not end with /exec', async () => {
+    const result = await testSheetsConnection('https://script.google.com/macros/s/enderecoscript');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('exclusivamente com o endpoint "/exec"');
+  });
+
+  it('should fail test connection when response is not valid JSON', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('Some unexpected non-json string'),
+    });
+
+    const result = await testSheetsConnection('https://script.google.com/macros/s/xyz/exec');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('não retornou uma resposta JSON válida');
+  });
 });

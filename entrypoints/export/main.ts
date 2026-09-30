@@ -3,6 +3,8 @@ import { formatMatchSummaryCsv, formatMatchHistoryCsv, formatFullLogText } from 
 import type { MatchRecord } from '../../src/types/match';
 import type { SheetsResponse } from '../../src/services/sheetsClient';
 
+import { downloadFile } from '../../src/ui/exportModal';
+
 function formatDecimal(val?: number): string {
   if (val === undefined || val === null || isNaN(val)) return '-';
   return Number.isInteger(val) ? `${val},0` : String(val).replace('.', ',');
@@ -14,16 +16,8 @@ function parseDecimal(s?: string): number | undefined {
   return isNaN(n) ? undefined : n;
 }
 
-function triggerDownload(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: `${mimeType};charset=utf-8;` });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 100);
+async function triggerDownload(content: string, filename: string, mimeType: string) {
+  await downloadFile(content, filename, mimeType);
 }
 
 let currentMatch: MatchRecord | null = null;

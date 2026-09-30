@@ -68,18 +68,36 @@ describe('exportModal UI', () => {
     expect((capturedMatch as any).sideboardCards).toEqual(['Pummel (Red)', 'Sink Below']);
   });
 
-  it('should trigger browser download using downloadFile', () => {
+  it('should trigger browser download using downloadFile fallback', async () => {
     vi.useFakeTimers();
     const createObjectURLMock = vi.fn().mockReturnValue('blob:test-url');
     const revokeObjectURLMock = vi.fn();
     global.URL.createObjectURL = createObjectURLMock;
     global.URL.revokeObjectURL = revokeObjectURLMock;
 
-    downloadFile('test content', 'test.csv', 'text/csv');
+    await downloadFile('test content', 'test.csv', 'text/csv');
 
     expect(createObjectURLMock).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(200);
     expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:test-url');
     vi.useRealTimers();
+  });
+
+  it('should delegate download to background when browser.runtime.sendMessage succeeds', async () => {
+    const sendMessageMock = vi.fn().mockResolvedValue({ success: true });
+    (globalThis as any).browser = {
+      runtime: {
+        sendMessage: sendMessageMock,
+      },
+    };
+
+    await downloadFile('test content', 'test.csv', 'text/csv');
+
+    expect(sendMessageMock).toHaveBeenCalledWith({
+      type: 'DOWNLOAD_FILE',
+      content: 'test content',
+      filename: 'test.csv',
+      mimeType: 'text/csv',
+    });
   });
 });

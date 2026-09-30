@@ -44,17 +44,38 @@ export function validateWebhookUrl(url?: string): { valid: boolean; url: string;
         valid: false,
         url: clean,
         error:
-          'Você informou o link da planilha do Google Docs, e não a URL do Webhook. Cole a URL da Implantação do Apps Script (terminada em /exec).',
+          'Você informou o link da planilha do Google Docs, e não a URL do Webhook. Cole a URL da Implantação do Apps Script terminada exclusivamente em /exec.',
       };
     }
 
-    // Common pitfall 2: User pasted Apps Script code editor URL
-    if (parsed.hostname.includes('script.google.com') && parsed.pathname.endsWith('/edit')) {
+    // Common pitfall 2: User pasted Apps Script code editor URL or non-exec endpoint
+    const isGoogleScript = parsed.hostname.includes('script.google.com') || parsed.pathname.includes('/macros/s/');
+    const pathnameWithoutTrailingSlash = parsed.pathname.replace(/\/+$/, '');
+
+    if (isGoogleScript || clean.includes('/macros/s/')) {
+      if (pathnameWithoutTrailingSlash.includes('/edit') || clean.includes('/edit')) {
+        return {
+          valid: false,
+          url: clean,
+          error:
+            'A URL informada utiliza o endpoint "/edit". Para o Webhook funcionar, altere exclusivamente o endpoint para "/exec" (ex: https://script.google.com/macros/s/.../exec). Vá em Implantar > Gerenciar Implantações e copie a URL do Web App terminada em /exec.',
+        };
+      }
+
+      if (!pathnameWithoutTrailingSlash.endsWith('/exec')) {
+        return {
+          valid: false,
+          url: clean,
+          error:
+            'A URL do Google Apps Script deve terminar exclusivamente com o endpoint "/exec" (ex: https://script.google.com/macros/s/.../exec). Altere o final da URL para /exec.',
+        };
+      }
+    } else if (pathnameWithoutTrailingSlash.includes('/edit') || clean.includes('/edit')) {
       return {
         valid: false,
         url: clean,
         error:
-          'Você informou o link do editor do Apps Script (/edit). Vá em Implantar > Nova Implantação e copie a URL do Web App (/exec).',
+          'A URL informada utiliza o endpoint "/edit". Altere exclusivamente o endpoint para "/exec".',
       };
     }
 
@@ -63,7 +84,7 @@ export function validateWebhookUrl(url?: string): { valid: boolean; url: string;
     return {
       valid: false,
       url: clean,
-      error: `A URL informada é inválida: "${clean}". Verifique se copiou a URL completa do Webhook (https://script.google.com/macros/s/.../exec).`,
+      error: `A URL informada é inválida: "${clean}". O endpoint deve terminar exclusivamente com "/exec" (https://script.google.com/macros/s/.../exec).`,
     };
   }
 }
@@ -114,16 +135,27 @@ export async function sendMatchToSheets(
         return {
           success: false,
           error:
-            'A URL informada retornou uma página HTML em vez de resposta do Webhook. Certifique-se de usar a URL de Implantação (.../exec).',
+            'A URL informada retornou uma página HTML em vez de resposta do Webhook. Certifique-se de usar a URL de Implantação terminada exclusivamente em /exec.',
         };
       }
-      data = { status: 'success' };
+      return {
+        success: false,
+        error:
+          'A URL informada não retornou uma resposta JSON válida do Webhook. Certifique-se de usar a URL de Implantação terminada exclusivamente em /exec.',
+      };
     }
 
     if (data.status === 'error') {
       return {
         success: false,
         error: data.message || 'Erro reportado pelo Google Apps Script',
+      };
+    }
+
+    if (data.status !== 'success') {
+      return {
+        success: false,
+        error: data.message || 'Resposta inesperada do Webhook. Certifique-se de usar o endpoint /exec.',
       };
     }
 
@@ -198,16 +230,27 @@ export async function testSheetsConnection(
         return {
           success: false,
           error:
-            'A URL retornou uma página HTML e não a resposta do Webhook. Verifique se copiou a URL de Implantação (/exec) e se "Quem pode acessar" está como "Qualquer pessoa".',
+            'A URL retornou uma página HTML e não a resposta do Webhook. Verifique se copiou a URL de Implantação terminada em /exec e se "Quem pode acessar" está como "Qualquer pessoa".',
         };
       }
-      data = { status: 'success' };
+      return {
+        success: false,
+        error:
+          'A URL informada não retornou uma resposta JSON válida do Webhook. Certifique-se de que a URL termina exclusivamente com "/exec" e que a Implantação está ativa para "Qualquer pessoa".',
+      };
     }
 
     if (data.status === 'error') {
       return {
         success: false,
         error: data.message || 'Erro reportado pelo script do Google Sheets',
+      };
+    }
+
+    if (data.status !== 'success') {
+      return {
+        success: false,
+        error: data.message || 'Resposta inesperada do Webhook. Certifique-se de usar exclusivamente o endpoint /exec.',
       };
     }
 

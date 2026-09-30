@@ -84,6 +84,36 @@ export default defineBackground(() => {
       return { success: true };
     }
 
+    if (message?.type === 'DOWNLOAD_FILE') {
+      try {
+        const mimeType = message.mimeType || 'text/plain';
+        const dataUrl = `data:${mimeType};charset=utf-8,${encodeURIComponent(message.content || '')}`;
+        const downloadId = await browser.downloads.download({
+          url: dataUrl,
+          filename: message.filename,
+          saveAs: false,
+        });
+        return { success: true, downloadId };
+      } catch (err: any) {
+        console.warn('[Talishar Log Exporter] Erro no download com data URL, tentando blob:', err);
+        try {
+          const mimeType = message.mimeType || 'text/plain';
+          const blob = new Blob([message.content || ''], { type: `${mimeType};charset=utf-8;` });
+          const blobUrl = URL.createObjectURL(blob);
+          const downloadId = await browser.downloads.download({
+            url: blobUrl,
+            filename: message.filename,
+            saveAs: false,
+          });
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+          return { success: true, downloadId };
+        } catch (err2: any) {
+          console.error('[Talishar Log Exporter] Erro ao executar browser.downloads.download:', err2);
+          return { success: false, error: err2?.message };
+        }
+      }
+    }
+
     return undefined;
   });
 });

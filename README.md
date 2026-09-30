@@ -7,15 +7,16 @@ Extensão de navegador para o Firefox desenvolvida com [WXT](https://wxt.dev/) e
 ## 🚀 Funcionalidades
 
 - **Captura Automática de Partidas**: Identifica jogadores, heróis, contagem de turnos, resultado (Vitória/Derrota), quem iniciou a partida e log de ações em tempo real.
-- **Métricas de Valor Médio por Turno**: Coleta o *Valor Médio por Turno* (*Avg Value per Turn*) do jogador e do oponente calculado pelo Talishar, com suporte a troca rápida de abas, detecção por contraste e campos 100% editáveis no modal.
-- **Rastreamento de Equipamentos**: Identifica o equipamento completo utilizado por você e pelo oponente (cabeça, peitoral, braços, pernas e armas).
+- **Métricas de Valor Médio por Turno & Calibração Automática**: Coleta o *Valor Médio por Turno* (*Avg Value per Turn*) do jogador e do oponente calculado pelo Talishar, ativando automaticamente o checkbox de exclusão do último turno (*Exclude Last Turn*) para cálculo estatístico refinado e alternando temporariamente para a visão do oponente via botão *Switch Player Stats* (restaurando em seguida a tela para a visão do jogador).
+- **Rastreamento de Equipamentos & Fadiga**: Identifica o equipamento completo utilizado por você e pelo oponente (cabeça, peitoral, braços, pernas e armas) e as cartas restantes no baralho (fadiga).
 - **Anotação de Cores das Cartas (Pitch)**: Registra no log o pitch de cada carta jogada ou anunciada: `(1 - Vermelha)`, `(2 - Amarela)` e `(3 - Azul)`.
 - **Rastreamento de Sideboard & Decks**: Detecta as cartas deixadas de fora do main deck durante a fase de sideboard no lobby ou inventário em jogo.
-- **Log Completo Otimizado para IA**: Download do arquivo `.txt` do log de combate tanto pelo popup quanto pelo modal pós-partida; nicknames dos jogadores são automaticamente substituídos pelos nomes dos respectivos heróis para ingestão por LLMs (ChatGPT, Claude, Gemini, etc.).
+- **Log Completo Otimizado para IA**: Download do arquivo `.txt` do log de combate tanto pelo popup quanto pelo modal pós-partida ou janela dedicada; nicknames dos jogadores são automaticamente substituídos pelos nomes dos respectivos heróis para ingestão por LLMs (ChatGPT, Claude, Gemini, etc.). Downloads utilizam a API nativa `browser.downloads` para imunidade contra bloqueadores de scripts de anúncios (ex: RevIQ).
 - **Exportação e Importação em CSV (Excel PT-BR)**: Gera arquivos com cabeçalho UTF-8 BOM (`\uFEFF`) e delimitador ponto-e-vírgula (`;`), abrindo diretamente no Excel sem caracteres corrompidos. Ordenado cronologicamente com **novos jogos anexados sempre nas linhas de baixo**, preservando a sequência original de planilhas importadas.
 - **Estrutura de Colunas Padronizada**:
   1. `Dia` | 2. `Jogador` | 3. `Deck` | 4. `Match` (herói do oponente) | 5. `Formato` | 6. `Resultado` | 7. `Iniciou` | 8. `Plataforma de Jogo` | 9. `Adversário` | 10. `Observações` | 11. `Turnos` | 12. `Meu Valor Médio/Turno` | 13. `Valor Médio/Turno Oponente` | 14. `Cartas Fora/Sideboard`
-- **Janela Nativa Dedicada de Exportação & Botão Flutuante**: Ao término da partida ou ao clicar em "Salvar/Exportar Última Partida" no popup da extensão, uma janela flutuante nativa da extensão (`/export.html`) é gerada automaticamente via `browser.windows.create()`. Isso elimina qualquer conflito de DOM/CSS do site do Talishar, permitindo registrar anotações, conferir estatísticas do oponente, salvar diretamente no Google Sheets e baixar arquivos CSV/TXT com 100% de estabilidade.
+- **Janela Nativa Dedicada de Exportação & Integração Popup**: Suporte a abrir uma janela popup independente (`/export.html`) ou disparar o modal nativo diretamente no Talishar através de botões específicos no popup da extensão.
+- **Validação de Webhook do Google Sheets**: Verificação automática de URLs do Google Apps Script com bloqueio de URLs de edição (`/edit`) e exigência do endpoint executável (`/exec`).
 
 ---
 

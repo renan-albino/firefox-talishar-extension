@@ -8,11 +8,27 @@ export interface ModalOptions {
   webhookUrl?: string;
   spreadsheetUrl?: string;
   onSaveToSheets: (match: MatchRecord) => Promise<SheetsResponse>;
-  onRefreshStats?: () => { playerAvgTurnValue?: number; opponentAvgTurnValue?: number };
+  onRefreshStats?: () => Promise<{ playerAvgTurnValue?: number; opponentAvgTurnValue?: number }> | { playerAvgTurnValue?: number; opponentAvgTurnValue?: number };
   onClose: () => void;
 }
 
-export function downloadFile(content: string, filename: string, mimeType: string): void {
+export async function downloadFile(content: string, filename: string, mimeType: string): Promise<void> {
+  // 1. Prioritize background download through browser.downloads to bypass webpage ad-blockers / RevIQ navigation interception
+  if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {
+    try {
+      const res = (await browser.runtime.sendMessage({
+        type: 'DOWNLOAD_FILE',
+        content,
+        filename,
+        mimeType,
+      })) as { success?: boolean } | undefined;
+      if (res?.success) return;
+    } catch {
+      // Fallback to DOM below
+    }
+  }
+
+  // 2. Direct DOM anchor fallback
   const blob = new Blob([content], { type: `${mimeType};charset=utf-8;` });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -137,7 +153,7 @@ export function createExportModal(options: ModalOptions): HTMLElement {
         <strong>${match?.player?.hero || 'Meu Herói'}</strong> <em>vs</em> <strong>${match?.opponent?.hero || 'Herói Oponente'}</strong>
       </div>
       <div style="display: flex; gap: 16px; font-size: 12px; color: #d1d5db;">
-        <div>Meu Valor Médio/Turno: <strong style="color: #6ee7b7;">${formatDecimal(match?.player?.avgTurnValue)}</strong></div>
+        <div>Meu Valor Médio/Turno: <strong id="modal-player-value" style="color: #6ee7b7;">${formatDecimal(match?.player?.avgTurnValue)}</strong></div>
         <div>Oponente: <strong id="modal-opp-value" style="color: #fca5a5;">${formatDecimal(match?.opponent?.avgTurnValue)}</strong></div>
       </div>
 
@@ -407,7 +423,18 @@ export function createExportModal(options: ModalOptions): HTMLElement {
     }
   };
 
+  const updatePlayerAvg = (newVal?: number) => {
+    if (newVal !== undefined && newVal !== null && !isNaN(newVal)) {
+      match.player.avgTurnValue = newVal;
+      const playerValueEl = container.querySelector('#modal-player-value');
+      if (playerValueEl) playerValueEl.textContent = formatDecimal(newVal);
+      const playerInputEl = container.querySelector<HTMLInputElement>('#modal-player-avg-input');
+      if (playerInputEl) playerInputEl.value = formatDecimal(newVal);
+    }
+  };
+
   (overlay as any).updateOpponentAvg = updateOpponentAvg;
+  (overlay as any).updatePlayerAvg = updatePlayerAvg;
 
   // Minimize button listener
   container.querySelector('#modal-minimize-btn')?.addEventListener('click', () => {
@@ -415,35 +442,48 @@ export function createExportModal(options: ModalOptions): HTMLElement {
   });
 
   // Switch opponent tab button listener
-  container.querySelector('#modal-switch-opp-tab-btn')?.addEventListener('click', () => {
+  container.querySelector('#modal-switch-opp-tab-btn')?.addEventListener('click', async () => {
+    setStatus('Alternando e capturando estatísticas do jogo... ⏳');
+    if (onRefreshStats) {
+      try {
+        const stats = await onRefreshStats();
+        if (stats?.playerAvgTurnValue !== undefined) {
+          updatePlayerAvg(stats.playerAvgTurnValue);
+        }
+        if (stats?.opponentAvgTurnValue !== undefined) {
+          updateOpponentAvg(stats.opponentAvgTurnValue);
+          setStatus(`Estatísticas capturadas (Oponente: ${formatDecimal(stats.opponentAvgTurnValue)})! ✅`);
+          return;
+        }
+      } catch (e) {
+        console.warn('[Talishar Log Exporter] Erro ao atualizar stats:', e);
+      }
+    }
     const oppTab = findOpponentTabElement(document, match.opponent?.name || match.opponent?.hero);
     if (oppTab) {
       oppTab.click();
+      setStatus('Comando de alternar enviado para o jogo! ✅');
     }
-    const checkAttempts = [50, 150, 300, 500];
-    checkAttempts.forEach((delay) => {
-      setTimeout(() => {
-        if (onRefreshStats) {
-          const stats = onRefreshStats();
-          if (stats?.opponentAvgTurnValue !== undefined) {
-            updateOpponentAvg(stats.opponentAvgTurnValue);
-            setStatus('Valor do oponente capturado com sucesso! ✅');
-          }
-        }
-      }, delay);
-    });
   });
 
-  container.querySelector('#modal-refresh-stats-btn')?.addEventListener('click', () => {
+  container.querySelector('#modal-refresh-stats-btn')?.addEventListener('click', async () => {
+    setStatus('Atualizando estatísticas... ⏳');
     if (onRefreshStats) {
-      const stats = onRefreshStats();
-      if (stats?.opponentAvgTurnValue !== undefined) {
-        updateOpponentAvg(stats.opponentAvgTurnValue);
-        setStatus('Estatísticas atualizadas! ✅');
-      } else {
-        setStatus('Nenhum valor novo detectado. Você pode digitar diretamente no campo Valor Médio Oponente.', true);
+      try {
+        const stats = await onRefreshStats();
+        if (stats?.playerAvgTurnValue !== undefined) {
+          updatePlayerAvg(stats.playerAvgTurnValue);
+        }
+        if (stats?.opponentAvgTurnValue !== undefined) {
+          updateOpponentAvg(stats.opponentAvgTurnValue);
+          setStatus(`Estatísticas atualizadas (Oponente: ${formatDecimal(stats.opponentAvgTurnValue)})! ✅`);
+          return;
+        }
+      } catch (e) {
+        console.warn('[Talishar Log Exporter] Erro ao atualizar stats:', e);
       }
     }
+    setStatus('Estatísticas atualizadas! ✅');
   });
 
   // Open Google Sheets button
@@ -530,21 +570,21 @@ export function createExportModal(options: ModalOptions): HTMLElement {
 
   // Local CSV button
   const csvBtn = container.querySelector<HTMLButtonElement>('#modal-btn-csv');
-  csvBtn?.addEventListener('click', () => {
+  csvBtn?.addEventListener('click', async () => {
     const updated = getUpdatedMatch();
     const csvData = formatMatchSummaryCsv(updated);
     const filename = `talishar-${updated.id}.csv`;
-    downloadFile(csvData, filename, 'text/csv');
+    await downloadFile(csvData, filename, 'text/csv');
     setStatus('Arquivo CSV baixado com sucesso! ✅');
   });
 
   // Full Log button
   const logBtn = container.querySelector<HTMLButtonElement>('#modal-btn-log');
-  logBtn?.addEventListener('click', () => {
+  logBtn?.addEventListener('click', async () => {
     const updated = getUpdatedMatch();
     const logData = formatFullLogText(updated);
     const filename = `talishar-${updated.id}-log.txt`;
-    downloadFile(logData, filename, 'text/plain');
+    await downloadFile(logData, filename, 'text/plain');
     setStatus('Log completo baixado com sucesso! ✅');
   });
 

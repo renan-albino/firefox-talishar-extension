@@ -1,6 +1,7 @@
 import { getSettings, saveSettings, getMatchHistory, importMatchesFromCsv } from '../../src/utils/storage';
 import { testSheetsConnection, validateWebhookUrl, type SheetsResponse } from '../../src/services/sheetsClient';
 import { formatMatchHistoryCsv, formatFullLogText } from '../../src/formatters/csvFormatter';
+import { downloadFile } from '../../src/ui/exportModal';
 
 const webhookInput = document.getElementById('webhook-url') as HTMLInputElement | null;
 const spreadsheetInput = document.getElementById('spreadsheet-url') as HTMLInputElement | null;
@@ -170,7 +171,7 @@ async function init() {
 
   exportLastMatchBtn?.addEventListener('click', async () => {
     try {
-      exportLastMatchBtn.innerText = 'Abrindo Janela de Exportação... ⏳';
+      exportLastMatchBtn.innerText = 'Abrindo Janela Separada... ⏳';
 
       let targetMatch = null;
 
@@ -205,10 +206,10 @@ async function init() {
       });
 
       exportLastMatchBtn.innerText = 'Janela Aberta! ✅';
-      showExportStatus('Janela de exportação aberta com sucesso!', false);
+      showExportStatus('Janela separada aberta com sucesso!', false);
       setTimeout(() => window.close(), 600);
     } catch (err: any) {
-      exportLastMatchBtn.innerText = '📝 Salvar/Exportar Última Partida Jogada';
+      exportLastMatchBtn.innerHTML = '<span style="font-size: 14px;">🗗</span> Abrir em Janela Separada';
       showExportStatus(`Erro ao abrir janela: ${err?.message || 'Falha inesperada'}`, true);
     }
   });
@@ -243,15 +244,7 @@ async function init() {
     }
 
     const logText = formatFullLogText(targetMatch);
-    const blob = new Blob([logText], { type: 'text/plain;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `talishar-${targetMatch.id || Date.now()}-log.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 100);
+    await downloadFile(logText, `talishar-${targetMatch.id || Date.now()}-log.txt`, 'text/plain');
     setStatus('Download do log (.txt) iniciado! ✅', false, statsStatusDiv);
     setTimeout(() => setStatus('', false, statsStatusDiv), 3000);
   });
@@ -264,14 +257,7 @@ async function init() {
       return;
     }
     const csv = formatMatchHistoryCsv(history);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'talishar_historico_partidas.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    await downloadFile(csv, 'talishar_historico_partidas.csv', 'text/csv');
     setStatus('Download iniciado! ✅', false, statsStatusDiv);
     setTimeout(() => setStatus('', false, statsStatusDiv), 3000);
   });

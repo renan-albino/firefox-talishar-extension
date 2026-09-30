@@ -34,6 +34,11 @@ export function formatTalisharCardName(input: string): string {
     clean = clean.slice(0, -5);
   }
 
+  // If input already contains spaces and no underscores, return as is (already human readable)
+  if (clean.includes(' ') && !clean.includes('_')) {
+    return clean;
+  }
+
   // Convert snake_case or kebab-case to Title Case words
   const words = clean
     .split(/[-_]+/)
@@ -55,30 +60,32 @@ export function isPreGameLobby(doc: Document = document): boolean {
   ) !== null;
   if (hasGameOver) return false;
 
-  // If in-game combat logs or player boards exist, it is NOT the pre-game lobby
-  const hasInGameElements = doc.querySelector(
-    '[class*="chatBox"], [class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="combatGroupLabel"]'
+  // If active in-game board exists, it is NOT the pre-game lobby
+  // Note: LobbyChat contains chatBox, so we do NOT check chatBox here.
+  const hasInGameBoard = doc.querySelector(
+    '[class*="PlayerBoardGrid"], [class*="playerBoard"], [class*="OpponentBoardGrid"], [class*="combatGroupLabel"], [class*="pOneDeck"], [class*="pTwoDeck"], [class*="pOneHead"], [class*="pTwoHead"], [class*="combatChain"]'
   ) !== null;
-  if (hasInGameElements) return false;
+  if (hasInGameBoard) return false;
 
   return (
     doc.querySelector(
-      '[class*="deckContainer"], [class*="DeckContainer"], [class*="Lobby"], [class*="lobbyContainer"]'
+      '[class*="lobbyClass"], [class*="Lobby"], [class*="deckContainer"], [class*="DeckContainer"], [class*="eqCategory"], [class*="stickyFooter"], input[name="deck"], [class*="lobbyContainer"]'
     ) !== null
   );
 }
 
 /**
- * Parses deck checkboxes in the Talishar lobby to identify main deck cards vs cards left out in the sideboard.
+ * Parses deck checkboxes and equipment in the Talishar lobby to identify main deck cards vs cards left out in the sideboard.
  */
 export function trackLobbyDeckState(doc: Document = document): DeckAdjustment {
   const cardsLeftOut: string[] = [];
   const cardsAdded: string[] = [];
   let mainDeckCount = 0;
 
+  // 1. Deck cards (checkboxes)
   const cardInputs = Array.from(
     doc.querySelectorAll<HTMLInputElement>(
-      'input[type="checkbox"][name="deck"], [class*="deckCardContainer"] input[type="checkbox"]'
+      'input[type="checkbox"][name="deck"], [class*="deckContainer"] input[type="checkbox"], [class*="deckCardContainer"] input[type="checkbox"]'
     )
   );
 
@@ -111,14 +118,50 @@ export function trackLobbyDeckState(doc: Document = document): DeckAdjustment {
     }
   });
 
+  // 2. Equipment categories in lobby: cards that are not equipped/selected
+  const eqContainers = Array.from(
+    doc.querySelectorAll('[class*="eqCategory"], [class*="categoryContainer"]')
+  );
+  eqContainers.forEach((eqBox) => {
+    // Unchecked weapon checkboxes
+    const unequippedWeapons = Array.from(
+      eqBox.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:not(:checked)')
+    );
+    unequippedWeapons.forEach((input) => {
+      const label = input.closest('label') || input.parentElement;
+      const img = label?.querySelector('img');
+      const raw = input.value || img?.getAttribute('alt') || img?.getAttribute('src') || '';
+      const formatted = formatTalisharCardName(raw);
+      if (formatted && formatted !== 'NONE00' && !cardsLeftOut.includes(formatted)) {
+        cardsLeftOut.push(formatted);
+      }
+    });
+
+    // Unselected radio equipment options
+    const radioInputs = Array.from(
+      eqBox.querySelectorAll<HTMLInputElement>('input[type="radio"]:not(:checked)')
+    );
+    radioInputs.forEach((radio) => {
+      const val = radio.value;
+      if (val && val !== 'NONE00') {
+        const label = radio.closest('label') || radio.parentElement;
+        const img = label?.querySelector('img');
+        const formatted = formatTalisharCardName(img?.getAttribute('alt') || img?.getAttribute('src') || val);
+        if (formatted && formatted !== 'NONE00' && !cardsLeftOut.includes(formatted)) {
+          cardsLeftOut.push(formatted);
+        }
+      }
+    });
+  });
+
   const adjustment: DeckAdjustment = {
     cardsLeftOut,
     cardsAdded,
     mainDeckCount,
   };
 
-  // Persist immediately if main deck cards were found
-  if (mainDeckCount > 0) {
+  // Persist immediately if main deck cards were found or sideboard cards were detected
+  if (mainDeckCount > 0 || cardsLeftOut.length > 0) {
     saveSideboardToStorage(adjustment);
   }
 
@@ -129,7 +172,9 @@ export function trackLobbyDeckState(doc: Document = document): DeckAdjustment {
  * Checks if the in-game InventoryModal is open in the DOM and extracts its cards.
  */
 export function trackInGameInventory(doc: Document = document): string[] {
-  const inventoryModal = doc.querySelector('[class*="inventoryModal"], [class*="InventoryModal"]');
+  const inventoryModal = doc.querySelector(
+    '[class*="inventoryModal"], [class*="InventoryModal"], [class*="inventory"], [class*="Inventory"]'
+  );
   if (!inventoryModal) return [];
 
   const cards: string[] = [];

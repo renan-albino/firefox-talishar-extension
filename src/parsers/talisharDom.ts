@@ -4,62 +4,83 @@ import { formatTalisharCardName } from './sideboardTracker';
 /**
  * Extracts player and opponent usernames from the Talishar DOM.
  */
-export function parsePlayerNames(doc: Document): { player?: string; opponent?: string } {
+export function parsePlayerNames(doc: Document): {
+  player?: string;
+  opponent?: string;
+  playerUsername?: string;
+  opponentUsername?: string;
+} {
   let player: string | undefined;
   let opponent: string | undefined;
+  let playerUsername: string | undefined;
+  let opponentUsername: string | undefined;
 
-  // 1. Try finding by board grid containers (Player vs Opponent)
-  const playerBoard = doc.querySelector('[class*="PlayerBoardGrid"], [class*="playerBoard"]');
-  const opponentBoard = doc.querySelector('[class*="OpponentBoardGrid"], [class*="opponentBoard"]');
-
-  const extractNameFromElement = (el: Element | null): string | undefined => {
+  const extractCleanName = (el: Element | null): string | undefined => {
     if (!el) return undefined;
-    const nameContent = el.querySelector('[class*="nameContent"], [class*="NameContent"]');
-    if (nameContent && nameContent.textContent) {
-      return nameContent.textContent.trim();
+    const nameSpan = el.querySelector('[class*="name"]:not([class*="nameContent"]):not([class*="nameContainer"])');
+    if (nameSpan && nameSpan.textContent?.trim()) {
+      return nameSpan.textContent.trim();
     }
-    const nameContainer = el.querySelector('[class*="nameContainer"], [class*="NameContainer"]');
-    if (nameContainer && nameContainer.textContent) {
-      return nameContainer.textContent.trim();
+    const nameContent = el.querySelector('[class*="nameContent"], [class*="NameContent"]');
+    if (nameContent && nameContent.textContent?.trim()) {
+      return nameContent.textContent.trim();
     }
     return el.textContent?.trim();
   };
 
+  // 1. From Player vs Opponent board containers
+  const playerBoard = doc.querySelector('[class*="PlayerBoardGrid"], [class*="playerBoard"]');
+  const opponentBoard = doc.querySelector('[class*="OpponentBoardGrid"], [class*="opponentBoard"]');
+
   if (playerBoard) {
-    const playerEl = playerBoard.querySelector('[class*="playerName"], [class*="PlayerName"]');
-    player = extractNameFromElement(playerEl);
+    player = extractCleanName(playerBoard.querySelector('[class*="playerName"], [class*="PlayerName"]'));
+    if (player) playerUsername = player;
   }
 
   if (opponentBoard) {
-    const oppEl = opponentBoard.querySelector('[class*="playerName"], [class*="PlayerName"]');
-    opponent = extractNameFromElement(oppEl);
+    opponent = extractCleanName(opponentBoard.querySelector('[class*="playerName"], [class*="PlayerName"]'));
+    if (opponent) opponentUsername = opponent;
   }
 
-  // 2. Fallback: Check top bar / right column mobile bar for opponent name
-  if (!opponent) {
-    const topBarOpp = doc.querySelector('[class*="mobileTopBarName"] [class*="playerName"], [class*="mobileTopBar"] [class*="playerName"]');
-    if (topBarOpp) {
-      opponent = extractNameFromElement(topBarOpp);
-    }
-  }
-
-  // 3. Fallback: Search all playerName elements by class differentiation
+  // 2. From LeftColumn elements (PlayerName.tsx): player has class 'playerTwo', opponent does not
   if (!player || !opponent) {
     const allNameEls = Array.from(doc.querySelectorAll('[class*="playerName"], [class*="PlayerName"]'));
     for (const el of allNameEls) {
-      const isPlayerTwo = el.classList.toString().includes('playerTwo');
-      const name = extractNameFromElement(el);
+      const cls = (el.className || '').toLowerCase();
+      const isPlayerTwo = cls.includes('playertwo');
+      const name = extractCleanName(el);
       if (name) {
         if (isPlayerTwo && !player) {
           player = name;
+          playerUsername = name;
         } else if (!isPlayerTwo && !opponent) {
           opponent = name;
+          opponentUsername = name;
         }
       }
     }
   }
 
-  return { player, opponent };
+  // 3. Fallback: discover usernames from Turn Dividers in chatBox (e.g. "Turn 1 - akiles185")
+  if (!playerUsername || !opponentUsername) {
+    const turnDividerPlayers = Array.from(doc.querySelectorAll('[class*="turnDividerPlayer"], [class*="TurnDividerPlayer"]'))
+      .map((el) => el.textContent?.trim())
+      .filter((n): n is string => Boolean(n && n.length > 1 && !['player', 'opponent', 'setup', 'game'].includes(n.toLowerCase())));
+
+    if (turnDividerPlayers.length > 0) {
+      const distinct = Array.from(new Set(turnDividerPlayers));
+      if (!playerUsername && distinct[0]) {
+        playerUsername = distinct[0];
+        if (!player) player = distinct[0];
+      }
+      if (!opponentUsername && distinct[1]) {
+        opponentUsername = distinct[1];
+        if (!opponent) opponent = distinct[1];
+      }
+    }
+  }
+
+  return { player, opponent, playerUsername, opponentUsername };
 }
 
 /**
@@ -300,62 +321,42 @@ export function parseCombatLogs(doc: Document): string[] {
 /**
  * Extracts equipped items (head, chest, arms, legs, weapons, off-hand) from both player and opponent boards.
  */
-export function parseEquipment(doc: Document): {
+/**
+ * Extracts equipped items (head, chest, arms, legs, weapons, off-hand) from both player and opponent boards.
+ */
+export function parseEquipment(
+  doc: Document,
+  cachedPlayerEquipment?: string[],
+  cachedOpponentEquipment?: string[]
+): {
   playerEquipment: string[];
   opponentEquipment: string[];
 } {
-  const extractFromContainer = (container: Element | null): string[] => {
+  const extractEquipmentFromContainer = (container: Element | null): string[] => {
     if (!container) return [];
     const equipNames = new Set<string>();
 
-    const zones = container.querySelectorAll(
-      '[class*="equipment"], [class*="Equipment"], [class*="weapon"], [class*="Weapon"], [class*="EquipmentZone"], [class*="heroEquipment"], [class*="head"], [class*="chest"], [class*="arms"], [class*="legs"]'
-    );
+    const imgs = Array.from(container.querySelectorAll('img'));
+    imgs.forEach((img) => {
+      const alt = img.getAttribute('alt')?.trim();
+      const title = img.getAttribute('title')?.trim();
+      const src = img.getAttribute('src') || '';
 
-    // 1. First approach: Look for specific images with the slotImage class anywhere in the container
-    const slotImages = Array.from(container.querySelectorAll('img[class*="slotImage"], img[class*="SlotImage"]'));
-    slotImages.forEach((img) => {
-      const src = img.getAttribute('src');
-      if (src) {
-        const formatted = formatTalisharCardName(src);
+      const candidate = alt || title || src;
+      if (candidate) {
+        const formatted = formatTalisharCardName(candidate);
         const lower = formatted.toLowerCase();
-        if (formatted && !lower.includes('hero') && !lower.includes('portrait') && !lower.includes('avatar') && !lower.includes('token')) {
+        if (
+          formatted &&
+          !lower.includes('hero') &&
+          !lower.includes('portrait') &&
+          !lower.includes('avatar') &&
+          !lower.includes('token') &&
+          !lower.includes('playmat') &&
+          !lower.includes('difficulties') &&
+          !lower.includes('back')
+        ) {
           equipNames.add(formatted);
-        }
-      }
-    });
-
-    // 2. Fallback to zones approach
-    zones.forEach((zone) => {
-      const imgs = zone.querySelectorAll('img');
-      imgs.forEach((img) => {
-        const title = img.getAttribute('title')?.trim();
-        const alt = img.getAttribute('alt')?.trim();
-        const src = img.getAttribute('src');
-
-        const candidate = title || alt;
-        if (candidate) {
-          const lower = candidate.toLowerCase();
-          if (!lower.includes('hero') && !lower.includes('portrait') && !lower.includes('avatar') && !lower.includes('token')) {
-            equipNames.add(candidate);
-          }
-        } else if (src) {
-          const formatted = formatTalisharCardName(src);
-          const lower = formatted.toLowerCase();
-          if (formatted && !lower.includes('hero') && !lower.includes('portrait') && !lower.includes('avatar') && !lower.includes('token')) {
-            equipNames.add(formatted);
-          }
-        }
-      });
-
-      if (imgs.length === 0) {
-        const titleEl = zone.querySelector('[class*="cardName"], [class*="CardName"], [class*="title"], [class*="cardTitle"]');
-        if (titleEl && titleEl.textContent?.trim()) {
-          const text = titleEl.textContent.trim();
-          const lower = text.toLowerCase();
-          if (!lower.includes('hero') && !lower.includes('portrait') && !lower.includes('token')) {
-            equipNames.add(text);
-          }
         }
       }
     });
@@ -363,23 +364,86 @@ export function parseEquipment(doc: Document): {
     return Array.from(equipNames);
   };
 
-  const playerBoard = doc.querySelector('[class*="PlayerBoardGrid"], [class*="playerBoard"]');
-  const opponentBoard = doc.querySelector('[class*="OpponentBoardGrid"], [class*="opponentBoard"]');
+  const pEquip = new Set<string>();
+  const oEquip = new Set<string>();
 
-  let playerEquipment = extractFromContainer(playerBoard);
-  let opponentEquipment = extractFromContainer(opponentBoard);
+  // 1. Desktop GridBoard zones (Player 1 = pOne..., Player 2 = pTwo...)
+  const pOneZones = Array.from(
+    doc.querySelectorAll(
+      '[class*="pOneHead"], [class*="pOneChest"], [class*="pOneHands"], [class*="pOneLegs"], [class*="pOneWeaponLZone"], [class*="pOneWeaponRZone"]'
+    )
+  );
+  pOneZones.forEach((zone) => {
+    extractEquipmentFromContainer(zone).forEach((item) => pEquip.add(item));
+  });
 
-  if (playerEquipment.length === 0 && opponentEquipment.length === 0) {
-    const allEquipZones = Array.from(
-      doc.querySelectorAll('[class*="equipmentZone"], [class*="EquipmentZone"]')
-    );
-    if (allEquipZones.length >= 2) {
-      opponentEquipment = extractFromContainer(allEquipZones[0]);
-      playerEquipment = extractFromContainer(allEquipZones[1]);
+  const pTwoZones = Array.from(
+    doc.querySelectorAll(
+      '[class*="pTwoHead"], [class*="pTwoChest"], [class*="pTwoHands"], [class*="pTwoLegs"], [class*="pTwoWeaponLZone"], [class*="pTwoWeaponRZone"]'
+    )
+  );
+  pTwoZones.forEach((zone) => {
+    extractEquipmentFromContainer(zone).forEach((item) => oEquip.add(item));
+  });
+
+  // 2. Mobile/portrait PlayerBoardGrid & OpponentBoardGrid fallback
+  if (pEquip.size === 0) {
+    const playerBoard = doc.querySelector('[class*="PlayerBoardGrid"], [class*="playerBoard"]');
+    if (playerBoard) {
+      const pZones = Array.from(
+        playerBoard.querySelectorAll(
+          '[class*="headZone"], [class*="chestZone"], [class*="armsZone"], [class*="legsZone"], [class*="weaponLZone"], [class*="weaponRZone"], [class*="equipZone"], [class*="equipment"], [class*="Equipment"], [class*="weapon"], [class*="Weapon"], [class*="head"], [class*="chest"], [class*="arms"], [class*="legs"]'
+        )
+      );
+      pZones.forEach((zone) => {
+        extractEquipmentFromContainer(zone).forEach((item) => pEquip.add(item));
+      });
+      if (pEquip.size === 0) {
+        extractEquipmentFromContainer(playerBoard).forEach((item) => pEquip.add(item));
+      }
     }
   }
 
-  return { playerEquipment, opponentEquipment };
+  if (oEquip.size === 0) {
+    const oppBoard = doc.querySelector('[class*="OpponentBoardGrid"], [class*="opponentBoard"]');
+    if (oppBoard) {
+      const oZones = Array.from(
+        oppBoard.querySelectorAll(
+          '[class*="headZone"], [class*="chestZone"], [class*="armsZone"], [class*="legsZone"], [class*="weaponLZone"], [class*="weaponRZone"], [class*="equipZone"], [class*="equipment"], [class*="Equipment"], [class*="weapon"], [class*="Weapon"], [class*="head"], [class*="chest"], [class*="arms"], [class*="legs"]'
+        )
+      );
+      oZones.forEach((zone) => {
+        extractEquipmentFromContainer(zone).forEach((item) => oEquip.add(item));
+      });
+      if (oEquip.size === 0) {
+        extractEquipmentFromContainer(oppBoard).forEach((item) => oEquip.add(item));
+      }
+    }
+  }
+
+  // 3. Fallback: Check all equipmentZone elements across doc
+  if (pEquip.size === 0 && oEquip.size === 0) {
+    const allEquipZones = Array.from(
+      doc.querySelectorAll('[class*="equipmentZone"], [class*="EquipmentZone"], [class*="equipZone"]')
+    );
+    if (allEquipZones.length >= 2) {
+      extractEquipmentFromContainer(allEquipZones[0]).forEach((item) => oEquip.add(item));
+      extractEquipmentFromContainer(allEquipZones[1]).forEach((item) => pEquip.add(item));
+    }
+  }
+
+  // 4. Fallback to cached equipment from during-game state
+  if (pEquip.size === 0 && cachedPlayerEquipment && cachedPlayerEquipment.length > 0) {
+    cachedPlayerEquipment.forEach((item) => pEquip.add(item));
+  }
+  if (oEquip.size === 0 && cachedOpponentEquipment && cachedOpponentEquipment.length > 0) {
+    cachedOpponentEquipment.forEach((item) => oEquip.add(item));
+  }
+
+  return {
+    playerEquipment: Array.from(pEquip),
+    opponentEquipment: Array.from(oEquip),
+  };
 }
 
 /**
@@ -423,9 +487,126 @@ export function isOpponentTabActive(
 }
 
 /**
+ * Locates the "Exclude Last Turn" checkbox in the Talishar end-game stats modal.
+ */
+export function findExcludeLastTurnCheckbox(doc: Document = document): HTMLInputElement | null {
+  return (
+    doc.querySelector<HTMLInputElement>(
+      'input[class*="excludeLastTurnCheckbox"], input[class*="excludeLastTurn"], input[type="checkbox"][class*="exclude"]'
+    ) ||
+    Array.from(doc.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find((cb) => {
+      const parentText = cb.closest('label, div, p, span')?.textContent?.toLowerCase() || '';
+      return parentText.includes('exclude last turn') || parentText.includes('last turn');
+    }) ||
+    null
+  );
+}
+
+/**
+ * Locates the "Switch Player Stats" button in the Talishar end-game stats modal.
+ */
+export function findSwitchPlayerStatsButton(doc: Document = document): HTMLButtonElement | null {
+  const buttons = Array.from(doc.querySelectorAll<HTMLButtonElement>('button'));
+  return (
+    buttons.find((b) => {
+      const txt = b.textContent?.trim().toLowerCase() || '';
+      return (
+        txt.includes('switch player stats') ||
+        txt.includes('switch player') ||
+        b.classList.toString().toLowerCase().includes('switchplayer') ||
+        b.querySelector('path[d*="M0 168v-16"]') !== null
+      );
+    }) || null
+  );
+}
+
+/**
+ * Automatically captures end-game stats by:
+ * 1. Ensuring "Exclude Last Turn" checkbox is clicked/checked for better defined stats.
+ * 2. Reading current stats.
+ * 3. Clicking "Switch Player Stats" to read opponent stats.
+ * 4. Clicking "Switch Player Stats" again to return the user to their own view.
+ */
+export async function autoCaptureEndGameStats(
+  doc: Document = document,
+  options?: {
+    opponentNameOrHero?: string;
+    playerNameOrHero?: string;
+    waitMs?: number;
+  }
+): Promise<{
+  playerAvgTurnValue?: number;
+  opponentAvgTurnValue?: number;
+}> {
+  const waitTime = options?.waitMs ?? 70;
+
+  // 1. Ensure "Exclude Last Turn" checkbox is clicked/checked if present
+  const excludeCb = findExcludeLastTurnCheckbox(doc);
+  if (excludeCb && !excludeCb.checked) {
+    try {
+      excludeCb.click();
+      await new Promise((r) => setTimeout(r, waitTime));
+    } catch (e) {
+      console.warn('[Talishar Log Exporter] Falha ao marcar excludeLastTurn:', e);
+    }
+  }
+
+  // 2. Read initial stats from the current view
+  const isOppActive = isOpponentTabActive(doc, options?.opponentNameOrHero, options?.playerNameOrHero);
+  const initialStats = parseAverageTurnValues(doc, options?.opponentNameOrHero, options?.playerNameOrHero);
+  const initialVal = initialStats.playerAvgTurnValue ?? initialStats.opponentAvgTurnValue;
+
+  let playerAvg = isOppActive ? undefined : initialVal;
+  let oppAvg = isOppActive ? initialVal : initialStats.opponentAvgTurnValue;
+
+  // 3. Find and toggle "Switch Player Stats" button
+  const switchBtn = findSwitchPlayerStatsButton(doc);
+  if (switchBtn) {
+    try {
+      // Switch view
+      switchBtn.click();
+      await new Promise((r) => setTimeout(r, waitTime));
+
+      // Also ensure excludeLastTurn is checked on the switched view if separate
+      const switchedExcludeCb = findExcludeLastTurnCheckbox(doc);
+      if (switchedExcludeCb && !switchedExcludeCb.checked) {
+        switchedExcludeCb.click();
+        await new Promise((r) => setTimeout(r, waitTime));
+      }
+
+      // Read stats from the switched view
+      const switchedStats = parseAverageTurnValues(doc, options?.opponentNameOrHero, options?.playerNameOrHero);
+      const switchedVal = switchedStats.playerAvgTurnValue ?? switchedStats.opponentAvgTurnValue;
+
+      if (isOppActive) {
+        if (switchedVal !== undefined) playerAvg = switchedVal;
+      } else {
+        if (switchedVal !== undefined) oppAvg = switchedVal;
+      }
+    } catch (e) {
+      console.warn('[Talishar Log Exporter] Erro ao alternar Switch Player Stats:', e);
+    } finally {
+      // Always switch back so user view remains unchanged
+      try {
+        switchBtn.click();
+        await new Promise((r) => setTimeout(r, waitTime));
+      } catch {}
+    }
+  }
+
+  return {
+    playerAvgTurnValue: playerAvg,
+    opponentAvgTurnValue: oppAvg,
+  };
+}
+
+/**
  * Finds the clickable tab element for the opponent in the Talishar DOM.
  */
 export function findOpponentTabElement(doc: Document, opponentNameOrHero?: string): HTMLElement | null {
+  const switchBtn = findSwitchPlayerStatsButton(doc);
+  if (switchBtn) return switchBtn;
+
   const tabs = Array.from(
     doc.querySelectorAll<HTMLElement>(
       '[role="tab"], button[class*="tab"], button[class*="Tab"], [class*="tab_"], [class*="Tab_"], [class*="tabButton"], [class*="tab"], [class*="navItem"], button'
@@ -731,15 +912,68 @@ export function parseWentFirst(logs: string[], playerName?: string, opponentName
 /**
  * Identifies the turn with the most damage dealt for each player based on combat logs.
  */
-export function parseMaxDamageTurn(logs: string[], playerName?: string, opponentName?: string): { playerMaxDamage: number, playerMaxDamageTurn: number, opponentMaxDamage: number, opponentMaxDamageTurn: number } {
+/**
+ * Identifies the turn with the most damage dealt for each player based on combat logs or EndGameStats table.
+ */
+export function parseMaxDamageTurn(
+  logs: string[],
+  playerName?: string,
+  opponentName?: string,
+  playerUsername?: string,
+  opponentUsername?: string,
+  doc?: Document
+): {
+  playerMaxDamage: number;
+  playerMaxDamageTurn: number;
+  opponentMaxDamage: number;
+  opponentMaxDamageTurn: number;
+} {
   let playerMax = 0;
   let playerMaxTurn = 0;
   let opponentMax = 0;
   let opponentMaxTurn = 0;
 
+  // 1. Try reading from EndGameStats turn table if rendered in DOM
+  if (doc) {
+    const tables = Array.from(doc.querySelectorAll('table[class*="cardTable"]'));
+    for (const table of tables) {
+      const headers = Array.from(table.querySelectorAll('thead th')).map((h) =>
+        h.textContent?.trim().toLowerCase() || ''
+      );
+      const dealtColIdx = headers.findIndex((h) => h.includes('dealt') || h.includes('dano causado'));
+      const turnColIdx = headers.findIndex((h) => h === '#' || h.includes('turn'));
+      if (dealtColIdx !== -1) {
+        const rows = Array.from(table.querySelectorAll('tbody tr'));
+        rows.forEach((row) => {
+          const cells = Array.from(row.querySelectorAll('td'));
+          if (cells.length > dealtColIdx) {
+            const turnVal = turnColIdx !== -1 ? parseInt(cells[turnColIdx]?.textContent?.trim() || '0', 10) : 0;
+            const dealtVal = parseInt(cells[dealtColIdx]?.textContent?.trim() || '0', 10);
+            if (!isNaN(dealtVal) && dealtVal > playerMax) {
+              playerMax = dealtVal;
+              playerMaxTurn = turnVal;
+            }
+          }
+        });
+      }
+    }
+  }
+
+  // 2. Parse from combat logs
   let currentTurn = 0;
+  let activeTurnPlayer = '';
   let currentPlayerDamage = 0;
   let currentOpponentDamage = 0;
+
+  const playerAliases = [playerName, playerUsername, 'player 1', 'jogador']
+    .filter((s): s is string => Boolean(s && s.length > 1))
+    .map((s) => s.toLowerCase());
+  const opponentAliases = [opponentName, opponentUsername, 'player 2', 'oponente']
+    .filter((s): s is string => Boolean(s && s.length > 1))
+    .map((s) => s.toLowerCase());
+
+  const isPlayerMatch = (text: string) => playerAliases.some((alias) => text.toLowerCase().includes(alias));
+  const isOpponentMatch = (text: string) => opponentAliases.some((alias) => text.toLowerCase().includes(alias));
 
   const pushTurnResults = () => {
     if (currentPlayerDamage > playerMax) {
@@ -752,43 +986,62 @@ export function parseMaxDamageTurn(logs: string[], playerName?: string, opponent
     }
   };
 
+  // Match: "akiles185 took 4 damage", "takes 3 damage", "deals 5 damage", "dealt 4 damage", "lost 2 life"
+  const dmgRegex = /(?:takes|took|deals|dealt|lost|loses)\s+(\d+)\s*(?:arcane\s+)?(?:damage|life)/i;
+  const hitRegex = /(?:hits?|hit for)\s+(\d+)\s*(?:damage)?/i;
+
   for (const line of logs) {
-    const turnMatch = line.match(/Turn\s+(\d+)/i);
-    if (turnMatch) {
+    const turnDividerMatch = line.match(/Turn\s+(\d+)(?:\s*[-:]\s*([A-Za-z0-9_\-.]+))?/i);
+    if (turnDividerMatch) {
       pushTurnResults();
-      currentTurn = parseInt(turnMatch[1], 10);
+      currentTurn = parseInt(turnDividerMatch[1], 10);
+      if (turnDividerMatch[2]) {
+        activeTurnPlayer = turnDividerMatch[2].trim().toLowerCase();
+      }
       currentPlayerDamage = 0;
       currentOpponentDamage = 0;
       continue;
     }
 
-    // Typical combat log for damage: "X takes Y damage" or "Z deals Y damage"
-    // Examples:
-    // "OpponentName takes 5 damage" => Opponent took 5 damage, Player dealt 5 damage.
-    // "PlayerName takes 3 damage" => Player took 3 damage, Opponent dealt 3 damage.
-    const dmgMatch = line.match(/takes (\d+) damage/i) || line.match(/deals (\d+) damage/i);
-    if (dmgMatch) {
-      const dmg = parseInt(dmgMatch[1], 10);
-      if (!isNaN(dmg)) {
-        const isPlayerTaking = playerName && line.toLowerCase().includes(playerName.toLowerCase());
-        const isOpponentTaking = opponentName && line.toLowerCase().includes(opponentName.toLowerCase());
-        
-        // If "takes", the person mentioned is receiving damage. 
-        // If "deals", the person mentioned is dealing damage.
-        const isTakes = /takes/i.test(line);
+    const match = line.match(dmgRegex) || line.match(hitRegex);
+    if (match) {
+      const dmg = parseInt(match[1], 10);
+      if (!isNaN(dmg) && dmg > 0) {
+        const lowerLine = line.toLowerCase();
+        const isTookOrLost = /took|takes|lost|loses/i.test(line);
+        const isDealtOrHit = /deals|dealt|hit/i.test(line);
 
-        if (isTakes) {
-          if (isOpponentTaking) {
-            currentPlayerDamage += dmg;
-          } else if (isPlayerTaking) {
+        const mentionsPlayer = isPlayerMatch(lowerLine);
+        const mentionsOpponent = isOpponentMatch(lowerLine);
+
+        if (isTookOrLost) {
+          if (mentionsPlayer) {
+            // Player received damage -> Opponent dealt it
             currentOpponentDamage += dmg;
+          } else if (mentionsOpponent) {
+            // Opponent received damage -> Player dealt it
+            currentPlayerDamage += dmg;
+          } else {
+            // No direct name mentioned; if active turn player is player, the opponent took damage
+            if (activeTurnPlayer && isPlayerMatch(activeTurnPlayer)) {
+              currentPlayerDamage += dmg;
+            } else if (activeTurnPlayer && isOpponentMatch(activeTurnPlayer)) {
+              currentOpponentDamage += dmg;
+            } else {
+              currentPlayerDamage += dmg;
+            }
           }
-        } else {
-          // It's "deals"
-          if (isPlayerTaking) {
+        } else if (isDealtOrHit) {
+          if (mentionsPlayer) {
             currentPlayerDamage += dmg;
-          } else if (isOpponentTaking) {
+          } else if (mentionsOpponent) {
             currentOpponentDamage += dmg;
+          } else {
+            if (activeTurnPlayer && isPlayerMatch(activeTurnPlayer)) {
+              currentPlayerDamage += dmg;
+            } else {
+              currentOpponentDamage += dmg;
+            }
           }
         }
       }
@@ -800,68 +1053,136 @@ export function parseMaxDamageTurn(logs: string[], playerName?: string, opponent
     playerMaxDamage: playerMax,
     playerMaxDamageTurn: playerMaxTurn,
     opponentMaxDamage: opponentMax,
-    opponentMaxDamageTurn: opponentMaxTurn
+    opponentMaxDamageTurn: opponentMaxTurn,
   };
 }
 
 /**
- * Parses fatigue (cards left in deck) from the DOM.
+ * Parses fatigue (cards left in deck) from the DOM or EndGameStats table.
  */
-export function parseFatigue(doc: Document): { playerFatigue?: number, opponentFatigue?: number } {
-  const getDeckCount = (container: Element | null): number | undefined => {
-    if (!container) return undefined;
-    const countEl = container.querySelector('[class*="deckCount"], [class*="DeckCount"], [class*="deckSize"], [class*="badge"], [class*="count"]');
-    if (countEl && countEl.textContent) {
-      const val = parseInt(countEl.textContent.trim(), 10);
+export function parseFatigue(
+  doc: Document,
+  cachedPlayerFatigue?: number,
+  cachedOpponentFatigue?: number
+): { playerFatigue?: number; opponentFatigue?: number } {
+  const getDeckCount = (deckZone: Element | null): number | undefined => {
+    if (!deckZone) return undefined;
+    const numEl = deckZone.querySelector(
+      '[class*="number"] [class*="text"], [class*="number"], [class*="deckCount"], [class*="badge"], [class*="count"]'
+    );
+    if (numEl && numEl.textContent) {
+      const val = parseInt(numEl.textContent.trim(), 10);
       if (!isNaN(val)) return val;
+    }
+    // If deck zone is present but has no number badge, deck is 0 (fully fatigued)
+    const text = deckZone.textContent?.trim().toLowerCase();
+    if (text === 'deck' || text === 'baralho') {
+      return 0;
     }
     return undefined;
   };
 
-  const playerBoard = doc.querySelector('[class*="PlayerBoardGrid"], [class*="playerBoard"]');
-  const opponentBoard = doc.querySelector('[class*="OpponentBoardGrid"], [class*="opponentBoard"]');
+  // 1. Desktop GridBoard deck zones
+  const pOneDeck = doc.querySelector(
+    '[class*="pOneDeck"], [class*="PlayerBoardGrid"] [class*="deckZone"], [class*="PlayerBoardGrid"]'
+  );
+  const pTwoDeck = doc.querySelector(
+    '[class*="pTwoDeck"], [class*="OpponentBoardGrid"] [class*="deckZone"], [class*="OpponentBoardGrid"]'
+  );
 
-  return {
-    playerFatigue: getDeckCount(playerBoard),
-    opponentFatigue: getDeckCount(opponentBoard),
-  };
+  let playerFatigue = getDeckCount(pOneDeck);
+  let opponentFatigue = getDeckCount(pTwoDeck);
+
+  // 2. EndGameStats turn results table fallback (reads cardsLeft from last row)
+  if (playerFatigue === undefined) {
+    const cardTables = Array.from(doc.querySelectorAll('table[class*="cardTable"]'));
+    for (const table of cardTables) {
+      const rows = Array.from(table.querySelectorAll('tbody tr'));
+      if (rows.length > 0) {
+        const lastRow = rows[rows.length - 1];
+        const cells = Array.from(lastRow.querySelectorAll('td'));
+        if (cells.length >= 6) {
+          const val = parseInt(cells[5].textContent?.trim() || cells[4].textContent?.trim() || '', 10);
+          if (!isNaN(val)) {
+            playerFatigue = val;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Fallback to cached fatigue values from during-game state
+  if (playerFatigue === undefined && cachedPlayerFatigue !== undefined) {
+    playerFatigue = cachedPlayerFatigue;
+  }
+  if (opponentFatigue === undefined && cachedOpponentFatigue !== undefined) {
+    opponentFatigue = cachedOpponentFatigue;
+  }
+
+  return { playerFatigue, opponentFatigue };
 }
 
 /**
  * Extracts a complete MatchRecord snapshot from the current DOM state.
  */
-export function extractMatchRecordFromDom(doc: Document = document): Partial<MatchRecord> {
-  const { player: playerName, opponent: oppName } = parsePlayerNames(doc);
+export function extractMatchRecordFromDom(
+  doc: Document = document,
+  options?: {
+    cachedPlayerEquipment?: string[];
+    cachedOpponentEquipment?: string[];
+    cachedPlayerFatigue?: number;
+    cachedOpponentFatigue?: number;
+  }
+): Partial<MatchRecord> {
+  const { player: playerName, opponent: oppName, playerUsername, opponentUsername } = parsePlayerNames(doc);
   const { playerHero, opponentHero } = parseHeroNames(doc);
   const rawLogs = parseCombatLogs(doc);
   const turnsCount = parseTurnCount(doc, rawLogs);
   const result = parseMatchResult(doc, rawLogs, playerName, oppName);
-  const wentFirst = parseWentFirst(rawLogs, playerName, oppName);
+  const wentFirst = parseWentFirst(rawLogs, playerName || playerUsername, oppName || opponentUsername);
   const { playerAvgTurnValue, opponentAvgTurnValue } = parseAverageTurnValues(
     doc,
     oppName || opponentHero,
     playerName || playerHero
   );
-  const { playerEquipment, opponentEquipment } = parseEquipment(doc);
-  const { playerFatigue, opponentFatigue } = parseFatigue(doc);
-  const { playerMaxDamage, playerMaxDamageTurn, opponentMaxDamage, opponentMaxDamageTurn } = parseMaxDamageTurn(rawLogs, playerName, oppName);
+  const { playerEquipment, opponentEquipment } = parseEquipment(
+    doc,
+    options?.cachedPlayerEquipment,
+    options?.cachedOpponentEquipment
+  );
+  const { playerFatigue, opponentFatigue } = parseFatigue(
+    doc,
+    options?.cachedPlayerFatigue,
+    options?.cachedOpponentFatigue
+  );
+  const { playerMaxDamage, playerMaxDamageTurn, opponentMaxDamage, opponentMaxDamageTurn } = parseMaxDamageTurn(
+    rawLogs,
+    playerName,
+    oppName,
+    playerUsername,
+    opponentUsername,
+    doc
+  );
 
   const player: PlayerStats = {
     name: playerName || 'Jogador',
     hero: playerHero || '-',
+    username: playerUsername,
     avgTurnValue: playerAvgTurnValue,
     fatigue: playerFatigue,
     maxDamage: playerMaxDamage,
-    maxDamageTurn: playerMaxDamageTurn
+    maxDamageTurn: playerMaxDamageTurn,
   };
 
   const opponent: PlayerStats = {
     name: oppName || 'Oponente',
     hero: opponentHero || '-',
+    username: opponentUsername,
     avgTurnValue: opponentAvgTurnValue,
     fatigue: opponentFatigue,
     maxDamage: opponentMaxDamage,
-    maxDamageTurn: opponentMaxDamageTurn
+    maxDamageTurn: opponentMaxDamageTurn,
   };
 
   return {

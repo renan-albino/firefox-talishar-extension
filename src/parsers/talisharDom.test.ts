@@ -9,6 +9,11 @@ import {
   extractMatchRecordFromDom,
   parseWentFirst,
   parseEquipment,
+  parseMaxDamageTurn,
+  parseFatigue,
+  findExcludeLastTurnCheckbox,
+  findSwitchPlayerStatsButton,
+  autoCaptureEndGameStats,
 } from './talisharDom';
 
 describe('talisharDom parser', () => {
@@ -328,6 +333,152 @@ describe('talisharDom parser', () => {
 
     const result = parseMatchResult(doc, logs, 'Renan', 'RivalPlayer');
     expect(result).toBe('win');
+  });
+
+  it('should accurately calculate max damage turn from logs with took, deals, and lost life', () => {
+    const logs = [
+      'Turn 1 - akiles185',
+      'akiles185 played Savage Feast',
+      'RivalEnemy took 4 damage',
+      'Turn 2 - RivalEnemy',
+      'RivalEnemy attacked with Dawnblade',
+      'akiles185 took 3 damage',
+      'Turn 3 - akiles185',
+      'akiles185 attacked with Cast Bones',
+      'RivalEnemy took 9 damage',
+      'RivalEnemy lost 2 life',
+      'Turn 4 - RivalEnemy',
+      'RivalEnemy deals 6 damage',
+    ];
+
+    const stats = parseMaxDamageTurn(logs, 'Renan', 'RivalEnemy', 'akiles185', 'RivalEnemy');
+    // On Turn 3, akiles185 dealt 9 + 2 = 11 damage
+    expect(stats.playerMaxDamage).toBe(11);
+    expect(stats.playerMaxDamageTurn).toBe(3);
+    // On Turn 4, RivalEnemy dealt 6 damage
+    expect(stats.opponentMaxDamage).toBe(6);
+    expect(stats.opponentMaxDamageTurn).toBe(4);
+  });
+
+  it('should parse fatigue from pOneDeck and pTwoDeck elements', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="GridBoard_pOneDeck__123">
+        <div class="DeckZone_deckZone__abc">
+          <div class="CountersOverlay_number__xyz">
+            <div class="CountersOverlay_text__111">24</div>
+          </div>
+        </div>
+      </div>
+      <div class="GridBoard_pTwoDeck__456">
+        <div class="DeckZone_deckZone__abc">
+          <div class="CountersOverlay_number__xyz">
+            <div class="CountersOverlay_text__111">18</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const fatigue = parseFatigue(doc);
+    expect(fatigue.playerFatigue).toBe(24);
+    expect(fatigue.opponentFatigue).toBe(18);
+  });
+
+  it('should parse equipment from desktop GridBoard pOne and pTwo zones', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="GridBoard_pOneHead__1"><img src="/cards/crown_of_providence.webp" alt="Crown of Providence" /></div>
+      <div class="GridBoard_pOneChest__2"><img src="/cards/fyendals_spring_tunic.webp" alt="Fyendal's Spring Tunic" /></div>
+      <div class="GridBoard_pOneHands__3"><img src="/cards/goliath_gauntlet.webp" alt="Goliath Gauntlet" /></div>
+      <div class="GridBoard_pOneLegs__4"><img src="/cards/scabfall_skin.webp" alt="Scabfall Skin" /></div>
+      <div class="GridBoard_pOneWeaponLZone__5"><img src="/cards/mandible_claw.webp" alt="Mandible Claw" /></div>
+      <div class="GridBoard_pTwoHead__1"><img src="/cards/ironrot_helm.webp" alt="Ironrot Helm" /></div>
+      <div class="GridBoard_pTwoChest__2"><img src="/cards/courage_of_bladehold.webp" alt="Courage of Bladehold" /></div>
+    `;
+
+    const equip = parseEquipment(doc);
+    expect(equip.playerEquipment).toContain('Crown of Providence');
+    expect(equip.playerEquipment).toContain("Fyendal's Spring Tunic");
+    expect(equip.playerEquipment).toContain('Goliath Gauntlet');
+    expect(equip.playerEquipment).toContain('Scabfall Skin');
+    expect(equip.playerEquipment).toContain('Mandible Claw');
+    expect(equip.opponentEquipment).toContain('Ironrot Helm');
+    expect(equip.opponentEquipment).toContain('Courage of Bladehold');
+  });
+
+  it('should find exclude last turn checkbox by class or label', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="statsModal">
+        <label>
+          <input type="checkbox" class="_excludeLastTurnCheckbox_bg0d3_1028" />
+          Exclude Last Turn
+        </label>
+      </div>
+    `;
+
+    const cb = findExcludeLastTurnCheckbox(doc);
+    expect(cb).not.toBeNull();
+    expect(cb?.className).toContain('_excludeLastTurnCheckbox_bg0d3_1028');
+  });
+
+  it('should find switch player stats button by class, text or svg path', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <button class="_buttonDiv_17sv7_12">
+        <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 512 512" aria-hidden="true" class="_icon_17sv7_55" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg">
+          <path d="M0 168v-16c0-13.255 10.745-24 24-24h360V80c0-21.367 25.899-32.042 40.971-16.971l80 80c9.372 9.373 9.372 24.569 0 33.941l-80 80C409.956 271.982 384 261.456 384 240v-48H24c-13.255 0-24-10.745-24-24zm488 152H128v-48c0-21.314-25.862-32.08-40.971-16.971l-80 80c-9.372 9.373-9.372 24.569 0 33.941l80 80C102.057 463.997 128 453.437 128 432v-48h360c13.255 0 24-10.745 24-24v-16c0-13.255-10.745-24-24-24z"></path>
+        </svg>
+        Switch Player Stats
+      </button>
+    `;
+
+    const btn = findSwitchPlayerStatsButton(doc);
+    expect(btn).not.toBeNull();
+    expect(btn?.textContent).toContain('Switch Player Stats');
+  });
+
+  it('should auto-capture end game stats: check exclude last turn, switch to opponent, and switch back to player view', async () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="statsModal">
+        <input type="checkbox" class="_excludeLastTurnCheckbox_bg0d3_1028" />
+        <button class="_buttonDiv_17sv7_12">
+          <svg><path d="M0 168v-16c0-13.255 10.745-24 24-24h360V80..."></path></svg>
+          Switch Player Stats
+        </button>
+        <div class="_infoRow_1fs3u_100">
+          <span class="_infoLabel_1fs3u_120">Avg Value per Turn</span>
+          <span class="_infoValue_1fs3u_152" id="val">13.5</span>
+        </div>
+      </div>
+    `;
+
+    const cb = doc.querySelector<HTMLInputElement>('._excludeLastTurnCheckbox_bg0d3_1028')!;
+    const btn = doc.querySelector<HTMLButtonElement>('._buttonDiv_17sv7_12')!;
+    const valEl = doc.querySelector('#val')!;
+
+    let isOpponent = false;
+    cb.addEventListener('click', () => {
+      cb.checked = true;
+      valEl.textContent = isOpponent ? '10.5' : '15.2';
+    });
+
+    let switchClicks = 0;
+    btn.addEventListener('click', () => {
+      switchClicks++;
+      isOpponent = !isOpponent;
+      valEl.textContent = isOpponent ? '10.5' : '15.2';
+    });
+
+    const result = await autoCaptureEndGameStats(doc, { waitMs: 1 });
+
+    expect(cb.checked).toBe(true);
+    expect(result.playerAvgTurnValue).toBe(15.2);
+    expect(result.opponentAvgTurnValue).toBe(10.5);
+    // Button must be toggled twice so user stays on player view
+    expect(switchClicks).toBe(2);
+    expect(isOpponent).toBe(false);
   });
 });
 

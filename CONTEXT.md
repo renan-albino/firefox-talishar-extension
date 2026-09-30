@@ -35,3 +35,6 @@ Identificação visual e semântica do custo/recurso de pitch de cada carta em F
 
 ### AI Combat Log (Log para Inteligência Artificial)
 Transcrição textual integral de combate na qual os nomes de tela dos usuários são substituídos contextualmente pelos heróis correspondentes, permitindo raciocínio e ingestão natural por modelos de linguagem (LLMs).
+
+### Turn Value Calibration & Exclude Last Turn (Calibração de Valor por Turno)
+Ajuste estatístico disponibilizado pelo Talishar para desconsiderar o turno incompleto da vitória ou derrota, gerando médias de valor por turno mais representativas do desempenho real dos baralhos.

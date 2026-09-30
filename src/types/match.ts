@@ -5,6 +5,7 @@
 export interface PlayerStats {
   name: string;
   hero: string;
+  username?: string;
   avgTurnValue?: number;
   finalHealth?: number;
   fatigue?: number;

@@ -102,37 +102,98 @@ function matchToCsvRow(match: MatchRecord): string {
  */
 export function replacePlayerNamesWithHeroes(
   logLines: string[],
-  player?: { name?: string; hero?: string },
-  opponent?: { name?: string; hero?: string }
+  player?: { name?: string; username?: string; hero?: string },
+  opponent?: { name?: string; username?: string; hero?: string }
 ): string[] {
   if (!logLines || logLines.length === 0) return [];
 
   const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  const replacements: Array<{ name: string; hero: string }> = [];
+  const replacements: Array<{ alias: string; hero: string }> = [];
 
-  const pName = player?.name?.trim();
   const pHero = player?.hero?.trim();
-  if (pName && pHero && pHero !== '-' && pName.toLowerCase() !== pHero.toLowerCase()) {
-    replacements.push({ name: pName, hero: pHero });
+  const oHero = opponent?.hero?.trim();
+
+  const isGeneric = (name?: string) => {
+    if (!name) return true;
+    const lower = name.toLowerCase().trim();
+    return (
+      lower === 'jogador' ||
+      lower === 'oponente' ||
+      lower === '-' ||
+      lower === 'player' ||
+      lower === 'opponent' ||
+      lower === 'setup' ||
+      lower === 'game' ||
+      lower === 'game over' ||
+      lower === 'start' ||
+      lower === 'end' ||
+      lower === 'combat' ||
+      lower === 'turn' ||
+      lower.length < 2
+    );
+  };
+
+  const addAlias = (alias: string | undefined, hero: string | undefined) => {
+    if (!alias || !hero || hero === '-' || isGeneric(alias)) return;
+    const cleanAlias = alias.trim();
+    if (cleanAlias.toLowerCase() === hero.toLowerCase()) return;
+    if (!replacements.some((r) => r.alias.toLowerCase() === cleanAlias.toLowerCase())) {
+      replacements.push({ alias: cleanAlias, hero });
+    }
+  };
+
+  // 1. Add direct names and usernames
+  addAlias(player?.name, pHero);
+  addAlias(player?.username, pHero);
+  addAlias(opponent?.name, oHero);
+  addAlias(opponent?.username, oHero);
+
+  // 2. Discover in-game usernames from Turn Dividers (e.g. "Turn 1 - akiles185")
+  const turnDividerUsers: string[] = [];
+  for (const line of logLines) {
+    const dividerMatch = line.match(/Turn\s+\d+\s*-\s*([A-Za-z0-9_\-.]+)/i);
+    if (dividerMatch && dividerMatch[1]) {
+      const user = dividerMatch[1].trim();
+      if (!isGeneric(user) && !turnDividerUsers.includes(user)) {
+        turnDividerUsers.push(user);
+      }
+    }
   }
 
-  const oName = opponent?.name?.trim();
-  const oHero = opponent?.hero?.trim();
-  if (oName && oHero && oHero !== '-' && oName.toLowerCase() !== oHero.toLowerCase()) {
-    replacements.push({ name: oName, hero: oHero });
+  // If we found turn divider usernames, map them to player/opponent heroes
+  if (turnDividerUsers.length >= 1) {
+    const firstUser = turnDividerUsers[0];
+    // If first user matches player or we know player went first
+    if (player?.username && firstUser.toLowerCase() === player.username.toLowerCase()) {
+      addAlias(firstUser, pHero);
+      if (turnDividerUsers.length >= 2) addAlias(turnDividerUsers[1], oHero);
+    } else if (opponent?.username && firstUser.toLowerCase() === opponent.username.toLowerCase()) {
+      addAlias(firstUser, oHero);
+      if (turnDividerUsers.length >= 2) addAlias(turnDividerUsers[1], pHero);
+    } else {
+      // First actor is player if unassigned
+      addAlias(firstUser, pHero);
+      if (turnDividerUsers.length >= 2) addAlias(turnDividerUsers[1], oHero);
+    }
   }
 
   if (replacements.length === 0) return logLines;
 
-  replacements.sort((a, b) => b.name.length - a.name.length);
+  // Sort longest aliases first to avoid partial replacements
+  replacements.sort((a, b) => b.alias.length - a.alias.length);
 
   return logLines.map((line) => {
     let modified = line;
-    for (const { name, hero } of replacements) {
-      const boundaryStart = /^\w/.test(name) ? '\\b' : '';
-      const boundaryEnd = /\w$/.test(name) ? '\\b' : '';
-      const regex = new RegExp(`${boundaryStart}${escapeRegex(name)}${boundaryEnd}`, 'g');
+    for (const { alias, hero } of replacements) {
+      // Handle possessive first: e.g. "akiles185's" -> "Kayo's"
+      const possessiveRegex = new RegExp(`\\b${escapeRegex(alias)}'s\\b`, 'gi');
+      modified = modified.replace(possessiveRegex, `${hero}'s`);
+
+      // Handle standard word boundary match: "akiles185" -> "Kayo"
+      const boundaryStart = /^\w/.test(alias) ? '\\b' : '';
+      const boundaryEnd = /\w$/.test(alias) ? '\\b' : '';
+      const regex = new RegExp(`${boundaryStart}${escapeRegex(alias)}${boundaryEnd}`, 'gi');
       modified = modified.replace(regex, hero);
     }
     return modified;
