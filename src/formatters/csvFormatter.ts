@@ -28,6 +28,10 @@ function escapeCsvField(val: string | number | undefined | null): string {
   return `"${str}"`;
 }
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function formatDatePtBr(isoString?: string): string {
   if (!isoString) return '-';
   try {
@@ -106,8 +110,6 @@ export function replacePlayerNamesWithHeroes(
   opponent?: { name?: string; username?: string; hero?: string }
 ): string[] {
   if (!logLines || logLines.length === 0) return [];
-
-  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   const replacements: Array<{ alias: string; hero: string }> = [];
 
@@ -218,6 +220,236 @@ export function formatMatchHistoryCsv(matches: MatchRecord[]): string {
   return `${UTF8_BOM}${headerRow}\n${dataRows}\n`;
 }
 
+export const KNOWN_FAB_PITCHES: Record<string, 'r' | 'y' | 'b'> = {
+  // Light / Warrior
+  'lumina ascension': 'y',
+  'spirit of eirina': 'y',
+  'beacon of victory': 'y',
+  'soul shield': 'y',
+  'saving grace': 'y',
+  'spirit of war': 'r',
+  'v of the vanguard': 'y',
+  'battlefield beacon': 'y',
+  'bravery of the blade': 'r',
+  'banneret of swordsmanship': 'y',
+  'banneret of courage': 'y',
+  'banneret of resilience': 'y',
+  'banneret of gallantry': 'y',
+  'blessing of bellona': 'y',
+  'blessing of suraya': 'y',
+  'blessing of aegis': 'y',
+  'blessing of themis': 'y',
+  'prayer of bellona': 'y',
+  'duty bound blitz': 'r',
+  'beaming bravado': 'y',
+  'celestial cataclysm': 'y',
+  'tenacity': 'y',
+
+  // Shadow / Brute / Levia
+  'cleave the heavens': 'r',
+  'engulfing shadows': 'r',
+  'feasting shadowbeast': 'r',
+  'dread screamer': 'r',
+  'endless maw': 'r',
+  'shadowrealm horror': 'r',
+  'deadwood rumbler': 'r',
+  'bloodrush bellow': 'y',
+  'blood harvest': 'r',
+  'diabolic offering': 'r',
+  'pull from beyond': 'b',
+  'vigorous smashup': 'b',
+  'goremass summoning': 'b',
+  'rockyard rodeo': 'y',
+  'consuming strength': 'r',
+  'corrupt and conquer': 'r',
+  'fallen herald': 'y',
+  'wrecker romp': 'r',
+  'feeding frenzy': 'r',
+
+  // Generic staples
+  'command and conquer': 'r',
+  'enlightened strike': 'r',
+  'sink below': 'r',
+  'fate foreseen': 'r',
+  'sigil of solace': 'r',
+  'pummel': 'r',
+  'art of war': 'y',
+  'energy potion': 'b',
+  'potion of strength': 'b',
+  'warmongers diplomacy': 'b',
+  'that all you got': 'y',
+  'give and take': 'y',
+  'codex of frailty': 'y',
+  'codex of bloodrot': 'y',
+  'codex of inertia': 'y',
+  'shake down': 'r',
+  'swarming gloomveil': 'r',
+  'preach': 'r',
+};
+
+/**
+ * Builds a pitch lookup map from match metadata, sideboard, and logs.
+ */
+export function buildKnownPitchMap(match: MatchRecord): Map<string, 'r' | 'y' | 'b'> {
+  const pitchMap = new Map<string, 'r' | 'y' | 'b'>();
+
+  // 1. Preload defaults
+  for (const [card, pitch] of Object.entries(KNOWN_FAB_PITCHES)) {
+    pitchMap.set(card.toLowerCase(), pitch);
+  }
+
+  // 2. Scan sideboard cards: "Card Name (r)"
+  if (match.sideboardCards) {
+    for (const item of match.sideboardCards) {
+      const matchPitch = item.match(/^(.+?)\s*\(([ryb])\)$/i);
+      if (matchPitch) {
+        pitchMap.set(matchPitch[1].trim().toLowerCase(), matchPitch[2].toLowerCase() as 'r' | 'y' | 'b');
+      }
+    }
+  }
+
+  // 3. Scan raw logs for any card names formatted with (r), (y), (b)
+  if (match.rawLogs) {
+    for (const line of match.rawLogs) {
+      const matches = line.matchAll(/([A-Z][a-zA-Z\s,'-]{2,30})\s*\(([ryb])\)/gi);
+      for (const m of matches) {
+        const cardName = m[1].trim().toLowerCase();
+        const pitch = m[2].toLowerCase() as 'r' | 'y' | 'b';
+        if (!pitchMap.has(cardName)) {
+          pitchMap.set(cardName, pitch);
+        }
+      }
+    }
+  }
+
+  return pitchMap;
+}
+
+/**
+ * Decorates card references in a combat log line with pitch notations if known.
+ */
+export function decorateLineWithPitches(line: string, pitchMap: Map<string, 'r' | 'y' | 'b'>): string {
+  if (
+    line.startsWith('---') ||
+    line.startsWith('===') ||
+    line.startsWith('[Mão Comprada') ||
+    line.startsWith('[Chain Link')
+  ) {
+    return line;
+  }
+
+  let modified = line;
+  for (const [cardName, pitch] of pitchMap.entries()) {
+    // Only match whole card names not already followed by (r), (y), or (b)
+    const regex = new RegExp(`\\b${escapeRegex(cardName)}\\b(?!\\s*\\([ryb]\\))`, 'gi');
+    if (regex.test(modified)) {
+      modified = modified.replace(regex, (match) => `${match} (${pitch})`);
+    }
+  }
+  return modified;
+}
+
+/**
+ * Enriches Chain Link lines with the attack card and total damage/threatened value.
+ */
+export function enrichChainLinksWithDamage(
+  lines: string[],
+  pitchMap?: Map<string, 'r' | 'y' | 'b'>
+): string[] {
+  const result: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const chainMatch = line.match(/^(?:\[?Chain Link\s*(\d+)\]?)/i);
+
+    if (chainMatch) {
+      const linkNum = chainMatch[1];
+      let attackCard = '';
+      let damageValue: number | undefined;
+
+      let hasBlock = false;
+
+      // Look ahead up to 18 lines for the attack resolution
+      for (let j = i + 1; j < Math.min(lines.length, i + 18); j++) {
+        const nextLine = lines[j];
+        if (
+          /^(?:\[?Chain Link\s*\d+|The combat chain was closed|--- Turn)/i.test(nextLine)
+        ) {
+          break;
+        }
+
+        // Damage detection: "is about to take X damage from <Card>" or "took X damage"
+        const dmgAboutMatch = nextLine.match(/is about to take\s*(\d+)\s*damage(?:\s+from\s*(.*))?/i);
+        if (dmgAboutMatch) {
+          damageValue = parseInt(dmgAboutMatch[1], 10);
+          if (!attackCard && dmgAboutMatch[2]?.trim()) attackCard = dmgAboutMatch[2].trim();
+        }
+
+        const tookDmgMatch = nextLine.match(/took\s*(\d+)\s*damage/i);
+        if (tookDmgMatch && damageValue === undefined) {
+          damageValue = parseInt(tookDmgMatch[1], 10);
+        }
+
+        const combatHitMatch = nextLine.match(/Combat resolved with a hit for\s*(\d+)\s*damage/i);
+        if (combatHitMatch && damageValue === undefined) {
+          damageValue = parseInt(combatHitMatch[1], 10);
+        }
+
+        if (
+          /Combat resolved with no hit/i.test(nextLine) ||
+          /(?:blocked|defended)\s+(?:with|for)/i.test(nextLine)
+        ) {
+          hasBlock = true;
+        }
+
+        // Attack card detection if not already found
+        if (!attackCard) {
+          const playedMatch = nextLine.match(
+            /(?:played|activated)\s+(?!ability\b|Ser Boltyn|Levia|Bravo|Kayo|Dorinthea)(.+?)(?:\s+from\s+arsenal|\s+for\s+\d+|$)/i
+          );
+          if (playedMatch) {
+            const candidate = playedMatch[1].trim();
+            if (
+              !candidate.toLowerCase().includes('ability') &&
+              !candidate.toLowerCase().includes('pass')
+            ) {
+              attackCard = candidate;
+            }
+          }
+        }
+      }
+
+      if (damageValue === undefined && hasBlock) {
+        damageValue = 0;
+      }
+
+      // Add pitch to attackCard if known
+      if (attackCard && pitchMap) {
+        const lower = attackCard.toLowerCase().replace(/\s*\([ryb]\)$/i, '').trim();
+        if (!/\([ryb]\)/i.test(attackCard) && pitchMap.has(lower)) {
+          attackCard = `${attackCard} (${pitchMap.get(lower)})`;
+        }
+      }
+
+      let formattedHeader = `[Chain Link ${linkNum}]`;
+      if (attackCard) {
+        if (damageValue !== undefined) {
+          const dmgDesc = damageValue > 0 ? `${damageValue} de dano` : '0 de dano (bloqueado)';
+          formattedHeader = `[Chain Link ${linkNum}] ${attackCard} — ${dmgDesc}`;
+        } else {
+          formattedHeader = `[Chain Link ${linkNum}] ${attackCard}`;
+        }
+      }
+
+      result.push(formattedHeader);
+    } else {
+      result.push(line);
+    }
+  }
+
+  return result;
+}
+
 /**
  * Formats a human-readable complete match log including metadata and turn history.
  */
@@ -260,12 +492,20 @@ export function formatFullLogText(match: MatchRecord): string {
     '--- LOG DE COMBATE COMPLETO (PERSONAGENS / IA) ---',
   ].join('\n');
 
+  const pitchMap = buildKnownPitchMap(match);
+
   const rawLogs = match.rawLogs && match.rawLogs.length > 0
     ? replacePlayerNamesWithHeroes(match.rawLogs, match.player, match.opponent)
     : [];
 
+  // Decorate lines with pitch codes
+  const pitchDecoratedLogs = rawLogs.map((l) => decorateLineWithPitches(l, pitchMap));
+
+  // Enrich chain link headers with attack card and damage
+  const chainEnrichedLogs = enrichChainLinksWithDamage(pitchDecoratedLogs, pitchMap);
+
   const formattedLines: string[] = [];
-  rawLogs.forEach((line) => {
+  chainEnrichedLogs.forEach((line) => {
     if (/^---?\s*Turn/i.test(line) || /^Turn\s+\d+/i.test(line)) {
       const clean = line.replace(/^-+\s*/, '').replace(/\s*-+$/, '');
       formattedLines.push('');

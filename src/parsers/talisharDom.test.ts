@@ -15,6 +15,7 @@ import {
   findSwitchPlayerStatsButton,
   autoCaptureEndGameStats,
   extractPlayerHand,
+  isEquipmentOrWeapon,
 } from './talisharDom';
 
 describe('talisharDom parser', () => {
@@ -550,6 +551,39 @@ describe('talisharDom parser', () => {
       'Fyendals Spring Tunic',
     ]);
     expect(hand).toEqual(['Snatch (r)', 'Sink Below (b)']);
+  });
+
+  it('should correctly identify equipment and weapon names', () => {
+    expect(isEquipmentOrWeapon('Raydn, Duskbane')).toBe(true);
+    expect(isEquipmentOrWeapon('Circlet of Eternal End')).toBe(true);
+    expect(isEquipmentOrWeapon('Fyendal\'s Spring Tunic')).toBe(true);
+    expect(isEquipmentOrWeapon('Scabskin Leathers')).toBe(true);
+    expect(isEquipmentOrWeapon('Hexagore, the Death Hydra')).toBe(true);
+    expect(isEquipmentOrWeapon('Command and Conquer')).toBe(false);
+    expect(isEquipmentOrWeapon('V of the Vanguard')).toBe(false);
+    expect(isEquipmentOrWeapon('Dread Screamer')).toBe(false);
+  });
+
+  it('should deduplicate hand logs per turn and filter out equipment in extractMatchRecordFromDom', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="ChatBox_chatBox__xyz">
+        <div class="chatContent">
+          <div class="ChatBox_turnDivider__111">Turn 1</div>
+          <div class="ChatBox_chatMessage__222">Player pitched Red Card</div>
+          <div class="ChatBox_turnDivider__111">Turn 1</div>
+          <div class="ChatBox_chatMessage__333">Opponent took 4 damage</div>
+        </div>
+      </div>
+    `;
+
+    const turnHands = new Map<number, string[]>();
+    turnHands.set(1, ['Raydn Duskbane', 'Bolt of Courage (r)', 'Cardback']);
+
+    const record = extractMatchRecordFromDom(doc, { turnHands });
+    const handLines = (record.rawLogs || []).filter((l) => l.startsWith('[Mão Comprada'));
+    expect(handLines).toHaveLength(1);
+    expect(handLines[0]).toBe('[Mão Comprada - Turno 1]: Bolt of Courage (r)');
   });
 });
 

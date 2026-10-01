@@ -98,4 +98,28 @@ describe('CsvFormatter (PT-BR Excel & Full Log)', () => {
     expect(fullLog).toContain('Turn 1: Dorinthea Ironsong blocked with Ironrot Gauntlet');
     expect(fullLog).toContain('Turn 7: Kayo, Armed and Dangerous attacks for lethal');
   });
+
+  it('should enrich chain links with attack card, pitch notation, and damage value', () => {
+    const chainMatch: MatchRecord = {
+      ...sampleMatch,
+      player: { name: 'akiles185', hero: 'Ser Boltyn, Breaker of Dawn' },
+      opponent: { name: 'PlayerTwo', hero: 'Levia, Shadowborn Abomination' },
+      sideboardCards: ['Beaming Bravado (y)', 'Dread Screamer (r)'],
+      rawLogs: [
+        '--- Turn 1 ---',
+        'Chain Link 1',
+        'akiles185 played Beaming Bravado',
+        'PlayerTwo is about to take 6 damage from Beaming Bravado',
+        'PlayerTwo took 6 damage',
+        'Chain Link 2',
+        'akiles185 played Raydn, Duskbane',
+        'PlayerTwo blocked for 3',
+        'The combat chain was closed',
+      ],
+    };
+
+    const fullLog = formatFullLogText(chainMatch);
+    expect(fullLog).toContain('[Chain Link 1] Beaming Bravado (y) — 6 de dano');
+    expect(fullLog).toContain('[Chain Link 2] Raydn, Duskbane — 0 de dano (bloqueado)');
+  });
 });

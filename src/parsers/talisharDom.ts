@@ -685,8 +685,53 @@ export async function autoCaptureEndGameStats(
 }
 
 /**
+ * Checks if a card name corresponds to equipment, weapon or shield.
+ */
+export function isEquipmentOrWeapon(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    lower.includes('raydn') ||
+    lower.includes('duskbane') ||
+    lower.includes('circlet') ||
+    lower.includes('helm') ||
+    lower.includes('kabuto') ||
+    lower.includes('warband') ||
+    lower.includes('tunic') ||
+    lower.includes('soulbond') ||
+    lower.includes('versus') ||
+    lower.includes('gauntlet') ||
+    lower.includes('leggings') ||
+    lower.includes('warpath') ||
+    lower.includes('shield') ||
+    (lower.includes('blade') && lower.includes('dawn')) ||
+    lower.includes('scythe') ||
+    lower.includes('hammer') ||
+    lower.includes('boots') ||
+    lower.includes('greaves') ||
+    lower.includes('hood') ||
+    lower.includes('mask') ||
+    lower.includes('vest') ||
+    lower.includes('robe') ||
+    lower.includes('crown') ||
+    lower.includes('quiver') ||
+    lower.includes('dagger') ||
+    lower.includes('claw') ||
+    lower.includes('scabskin') ||
+    lower.includes('scabfall') ||
+    lower.includes('ironrot') ||
+    lower.includes('savage sash') ||
+    lower.includes('scowling flesh bag') ||
+    lower.includes('hexagore') ||
+    lower.includes('heartened cross') ||
+    lower.includes('nullrune') ||
+    lower.includes('barkbone') ||
+    lower.includes('arcane lantern')
+  );
+}
+
+/**
  * Extracts cards currently in the player's hand, formatted with pitch suffixes (r), (y), (b).
- * Avoids opponent zones and equipment hands slots.
+ * Avoids opponent zones, equipment, tokens, and sideboard drawers.
  */
 export function extractPlayerHand(
   doc: Document = document,
@@ -759,7 +804,8 @@ export function extractPlayerHand(
           !lower.includes('playmat') &&
           !lower.includes('difficulties') &&
           !lower.includes('back') &&
-          !lowerEquip.has(lower)
+          !lowerEquip.has(lower) &&
+          !isEquipmentOrWeapon(formatted)
         ) {
           candidateCards.push(formatted);
         }
@@ -770,6 +816,53 @@ export function extractPlayerHand(
     if (candidateCards.length > 0 && candidateCards.length <= 10) {
       handCards.push(...candidateCards);
       break;
+    }
+  }
+
+  // Fallback: search containers holding card images from bottom-to-top
+  if (handCards.length === 0) {
+    const allContainers = Array.from(doc.querySelectorAll<HTMLElement>('div, section, ul'));
+    for (let i = allContainers.length - 1; i >= 0; i--) {
+      const container = allContainers[i];
+      const c = (container.className?.toString() || '').toLowerCase();
+      const id = (container.id || '').toLowerCase();
+      if (
+        c.includes('head') || c.includes('chest') || c.includes('hands') || c.includes('legs') ||
+        c.includes('weapon') || c.includes('deck') || c.includes('grave') || c.includes('discard') ||
+        c.includes('banish') || c.includes('pitch') || c.includes('sideboard') || c.includes('inventory') ||
+        c.includes('ptwo') || c.includes('opponent') || id.includes('sideboard') || id.includes('inventory')
+      ) {
+        continue;
+      }
+
+      const imgs = Array.from(container.querySelectorAll<HTMLImageElement>(':scope > img, :scope > div > img'));
+      if (imgs.length >= 1 && imgs.length <= 10) {
+        const candidateCards: string[] = [];
+        let hasJunk = false;
+        for (const img of imgs) {
+          const rawName = img.getAttribute('alt')?.trim() || img.getAttribute('title')?.trim() || img.getAttribute('src')?.trim();
+          if (!rawName) continue;
+          const formatted = formatTalisharCardName(rawName);
+          const lower = formatted.toLowerCase();
+          if (
+            lower.includes('back') ||
+            lower.includes('hero') ||
+            lower.includes('avatar') ||
+            lower.includes('portrait') ||
+            lowerEquip.has(lower) ||
+            isEquipmentOrWeapon(formatted)
+          ) {
+            hasJunk = true;
+            break;
+          }
+          candidateCards.push(formatted);
+        }
+
+        if (!hasJunk && candidateCards.length >= 1 && candidateCards.length <= 10) {
+          handCards.push(...candidateCards);
+          break;
+        }
+      }
     }
   }
 
@@ -1347,14 +1440,26 @@ export function extractMatchRecordFromDom(
   if (options?.turnHands) {
     const hands = options.turnHands;
     const enriched: string[] = [];
+    const insertedTurns = new Set<number>();
     for (const line of parsedLogs) {
       enriched.push(line);
       const match = line.match(/Turn\s+(\d+)/i);
       if (match) {
         const turnNo = parseInt(match[1], 10);
-        const cards = hands instanceof Map ? hands.get(turnNo) : (hands as any)[turnNo];
-        if (cards && cards.length > 0) {
-          enriched.push(`[Mão Comprada - Turno ${turnNo}]: ${cards.join(', ')}`);
+        if (!insertedTurns.has(turnNo)) {
+          const cards = hands instanceof Map ? hands.get(turnNo) : (hands as any)[turnNo];
+          if (cards && cards.length > 0) {
+            const cleanCards = cards.filter(
+              (c: string) =>
+                !isEquipmentOrWeapon(c) &&
+                !c.toLowerCase().includes('back') &&
+                !c.toLowerCase().includes('hero')
+            );
+            if (cleanCards.length > 0) {
+              enriched.push(`[Mão Comprada - Turno ${turnNo}]: ${cleanCards.join(', ')}`);
+              insertedTurns.add(turnNo);
+            }
+          }
         }
       }
     }
