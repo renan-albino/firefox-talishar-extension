@@ -14,6 +14,7 @@ import {
   findExcludeLastTurnCheckbox,
   findSwitchPlayerStatsButton,
   autoCaptureEndGameStats,
+  extractPlayerHand,
 } from './talisharDom';
 
 describe('talisharDom parser', () => {
@@ -86,11 +87,11 @@ describe('talisharDom parser', () => {
 
     const logs = parseCombatLogs(doc);
     expect(logs).toHaveLength(6);
-    expect(logs[0]).toBe('Turn 1');
+    expect(logs[0]).toBe('--- Turn 1 ---');
     expect(logs[1]).toContain('akiles185 pitched Wild Ride');
-    expect(logs[2]).toContain('akiles185 played Savage Feast (1 - Vermelha) for 6');
+    expect(logs[2]).toContain('[Chain Link 1] akiles185 played Savage Feast (r) for 6');
     expect(logs[3]).toContain('NateFrautschy defended with Ironrot Gauntlet for 1');
-    expect(logs[4]).toBe('Turn 2');
+    expect(logs[4]).toBe('--- Turn 2 ---');
     expect(logs[5]).toContain('NateFrautschy played Dawnblade');
   });
 
@@ -117,9 +118,9 @@ describe('talisharDom parser', () => {
 
     const logs = parseCombatLogs(doc);
     expect(logs).toEqual([
-      'Turn 1 - akiles185',
+      '--- Turn 1 - akiles185 ---',
       'The combat chain was closed.',
-      'Turn 2 - NateFrautschy',
+      '--- Turn 2 - NateFrautschy ---',
       'The combat chain was closed.',
     ]);
   });
@@ -282,9 +283,9 @@ describe('talisharDom parser', () => {
     `;
 
     const logs = parseCombatLogs(doc);
-    expect(logs[0]).toContain('Savage Feast (1 - Vermelha)');
-    expect(logs[1]).toContain('Sink Below (Amarela)');
-    expect(logs[2]).toContain('Sigil of Solace (Azul)');
+    expect(logs[0]).toContain('Savage Feast (r)');
+    expect(logs[1]).toContain('Sink Below (y)');
+    expect(logs[2]).toContain('Sigil of Solace (b)');
   });
 
   it('should recognize opponent average turn value when different from known player average', () => {
@@ -479,6 +480,27 @@ describe('talisharDom parser', () => {
     // Button must be toggled twice so user stays on player view
     expect(switchClicks).toBe(2);
     expect(isOpponent).toBe(false);
+  });
+
+  it('should extract cards in player hand ignoring equipment hand slots', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="_pOneHands_1ksvz_321">
+        <img alt="Goliath Gauntlet" />
+      </div>
+      <div class="_handZone_999">
+        <img alt="Pummel (1)" />
+        <img alt="Command and Conquer (2)" />
+        <img alt="Sink Below (3)" />
+      </div>
+    `;
+
+    const hand = extractPlayerHand(doc);
+    expect(hand).toEqual([
+      'Pummel (r)',
+      'Command and Conquer (y)',
+      'Sink Below (b)',
+    ]);
   });
 });
 

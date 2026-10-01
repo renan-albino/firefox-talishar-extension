@@ -24,19 +24,22 @@ export function formatTalisharCardName(input: string): string {
   // Detect pitch suffix: _red, _yellow, _blue
   let pitchSuffix = '';
   if (clean.endsWith('_red')) {
-    pitchSuffix = ' (Red)';
+    pitchSuffix = ' (r)';
     clean = clean.slice(0, -4);
   } else if (clean.endsWith('_yellow')) {
-    pitchSuffix = ' (Yellow)';
+    pitchSuffix = ' (y)';
     clean = clean.slice(0, -7);
   } else if (clean.endsWith('_blue')) {
-    pitchSuffix = ' (Blue)';
+    pitchSuffix = ' (b)';
     clean = clean.slice(0, -5);
   }
 
   // If input already contains spaces and no underscores, return as is (already human readable)
   if (clean.includes(' ') && !clean.includes('_')) {
-    return clean;
+    return clean
+      .replace(/\s*\((?:Red|Vermelha|1)\)$/i, ' (r)')
+      .replace(/\s*\((?:Yellow|Amarela|2)\)$/i, ' (y)')
+      .replace(/\s*\((?:Blue|Azul|3)\)$/i, ' (b)');
   }
 
   // Convert snake_case or kebab-case to Title Case words

@@ -9,16 +9,16 @@ import {
 describe('sideboardTracker', () => {
   describe('formatTalisharCardName', () => {
     it('should format snake_case card identifiers with pitch suffixes', () => {
-      expect(formatTalisharCardName('savage_feast_red-1')).toBe('Savage Feast (Red)');
-      expect(formatTalisharCardName('sink_below_blue-2')).toBe('Sink Below (Blue)');
-      expect(formatTalisharCardName('pummel_yellow')).toBe('Pummel (Yellow)');
-      expect(formatTalisharCardName('command_and_conquer_red')).toBe('Command And Conquer (Red)');
+      expect(formatTalisharCardName('savage_feast_red-1')).toBe('Savage Feast (r)');
+      expect(formatTalisharCardName('sink_below_blue-2')).toBe('Sink Below (b)');
+      expect(formatTalisharCardName('pummel_yellow')).toBe('Pummel (y)');
+      expect(formatTalisharCardName('command_and_conquer_red')).toBe('Command And Conquer (r)');
       expect(formatTalisharCardName('dawnblade')).toBe('Dawnblade');
     });
 
     it('should format card image URLs', () => {
       const url = 'https://images.talishar.net/public/cardsquares/english/fate_foreseen_red.webp';
-      expect(formatTalisharCardName(url)).toBe('Fate Foreseen (Red)');
+      expect(formatTalisharCardName(url)).toBe('Fate Foreseen (r)');
     });
   });
 
@@ -51,8 +51,8 @@ describe('sideboardTracker', () => {
       const adjustment = trackLobbyDeckState(doc);
       expect(adjustment.mainDeckCount).toBe(1);
       expect(adjustment.cardsLeftOut).toHaveLength(2);
-      expect(adjustment.cardsLeftOut).toContain('Sink Below (Red)');
-      expect(adjustment.cardsLeftOut).toContain('Pummel (Red)');
+      expect(adjustment.cardsLeftOut).toContain('Sink Below (r)');
+      expect(adjustment.cardsLeftOut).toContain('Pummel (r)');
     });
   });
 
@@ -74,8 +74,8 @@ describe('sideboardTracker', () => {
 
       const cards = trackInGameInventory(doc);
       expect(cards).toHaveLength(2);
-      expect(cards).toContain('Unmovable (Blue)');
-      expect(cards).toContain('Oasis Respite (Red)');
+      expect(cards).toContain('Unmovable (b)');
+      expect(cards).toContain('Oasis Respite (r)');
     });
   });
 });

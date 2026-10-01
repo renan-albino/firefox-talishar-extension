@@ -264,8 +264,21 @@ export function formatFullLogText(match: MatchRecord): string {
     ? replacePlayerNamesWithHeroes(match.rawLogs, match.player, match.opponent)
     : [];
 
-  const logs = rawLogs.length > 0
-    ? rawLogs.join('\n')
+  const formattedLines: string[] = [];
+  rawLogs.forEach((line) => {
+    if (/^---?\s*Turn/i.test(line) || /^Turn\s+\d+/i.test(line)) {
+      const clean = line.replace(/^-+\s*/, '').replace(/\s*-+$/, '');
+      formattedLines.push('');
+      formattedLines.push('--------------------------------------------------');
+      formattedLines.push(`--- ${clean} ---`);
+      formattedLines.push('--------------------------------------------------');
+    } else {
+      formattedLines.push(line);
+    }
+  });
+
+  const logs = formattedLines.length > 0
+    ? formattedLines.join('\n')
     : '(Nenhum log registrado)';
 
   return `${header}\n${logs}\n`;

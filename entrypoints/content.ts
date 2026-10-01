@@ -8,6 +8,9 @@ import {
   parsePlayerNames,
   autoCaptureEndGameStats,
   findSwitchPlayerStatsButton,
+  findExcludeLastTurnCheckbox,
+  extractPlayerHand,
+  parseTurnCount,
 } from '../src/parsers/talisharDom';
 import {
   trackLobbyDeckState,
@@ -35,6 +38,10 @@ export default defineContentScript({
     // Continuous in-game cache to preserve state even if DOM overlays change
     let cachedPlayerEquipment: string[] = [];
     let cachedOpponentEquipment: string[] = [];
+    let initialPlayerEquipment: string[] = [];
+    let initialOpponentEquipment: string[] = [];
+    const turnHands = new Map<number, string[]>();
+    let lastHandLoggedTurn = 0;
     let cachedPlayerFatigue: number | undefined = undefined;
     let cachedOpponentFatigue: number | undefined = undefined;
     let cachedPlayerUsername: string | undefined = undefined;
@@ -204,6 +211,10 @@ export default defineContentScript({
         if (matchEndedHandled && !isIngame) {
           matchEndedHandled = false;
           modalElement = null;
+          initialPlayerEquipment = [];
+          initialOpponentEquipment = [];
+          turnHands.clear();
+          lastHandLoggedTurn = 0;
           const oldBtn = document.getElementById('talishar-log-export-btn');
           if (oldBtn) oldBtn.remove();
           const oldHost = document.getElementById('sp_message_container_talishar');
@@ -217,11 +228,25 @@ export default defineContentScript({
         }
       }
 
-      // 2. In-game live caching: equipment, fatigue, usernames, and inventory
+      // 2. In-game live caching: equipment, fatigue, usernames, hand tracking, and inventory
       if (isIngame && !hasGameOver) {
         const liveEquip = parseEquipment(document, cachedPlayerEquipment, cachedOpponentEquipment);
-        if (liveEquip.playerEquipment.length > 0) cachedPlayerEquipment = liveEquip.playerEquipment;
-        if (liveEquip.opponentEquipment.length > 0) cachedOpponentEquipment = liveEquip.opponentEquipment;
+        if (liveEquip.playerEquipment.length > 0) {
+          cachedPlayerEquipment = liveEquip.playerEquipment;
+          liveEquip.playerEquipment.forEach((item) => {
+            if (!initialPlayerEquipment.includes(item)) {
+              initialPlayerEquipment.push(item);
+            }
+          });
+        }
+        if (liveEquip.opponentEquipment.length > 0) {
+          cachedOpponentEquipment = liveEquip.opponentEquipment;
+          liveEquip.opponentEquipment.forEach((item) => {
+            if (!initialOpponentEquipment.includes(item)) {
+              initialOpponentEquipment.push(item);
+            }
+          });
+        }
 
         const liveFatigue = parseFatigue(document, cachedPlayerFatigue, cachedOpponentFatigue);
         if (liveFatigue.playerFatigue !== undefined) cachedPlayerFatigue = liveFatigue.playerFatigue;
@@ -230,6 +255,16 @@ export default defineContentScript({
         const liveNames = parsePlayerNames(document);
         if (liveNames.playerUsername) cachedPlayerUsername = liveNames.playerUsername;
         if (liveNames.opponentUsername) cachedOpponentUsername = liveNames.opponentUsername;
+
+        // Track player hand upon turn transition
+        const currentTurnNo = parseTurnCount(document, combatLogs);
+        if (currentTurnNo > 0 && currentTurnNo !== lastHandLoggedTurn) {
+          const hand = extractPlayerHand(document);
+          if (hand.length > 0) {
+            turnHands.set(currentTurnNo, hand);
+            lastHandLoggedTurn = currentTurnNo;
+          }
+        }
 
         const inventoryContainer = document.querySelector('[class*="inventory"], [class*="Inventory"]');
         if (inventoryContainer) {
@@ -259,20 +294,37 @@ export default defineContentScript({
           const snapshot = extractMatchRecordFromDom(document, {
             cachedPlayerEquipment,
             cachedOpponentEquipment,
+            initialPlayerEquipment,
+            initialOpponentEquipment,
             cachedPlayerFatigue,
             cachedOpponentFatigue,
+            turnHands,
           });
 
-          // Automated capture: click excludeLastTurn (if not checked) and switch player to capture opponent avg
+          // Automated capture with retries (polling every 350ms up to 12 times = ~4.5s)
+          // to ensure Talishar's EndGameStats modal has mounted and finished rendering
           let autoStats: { playerAvgTurnValue?: number; opponentAvgTurnValue?: number } = {};
-          try {
-            await new Promise((r) => setTimeout(r, 180));
-            autoStats = await autoCaptureEndGameStats(document, {
-              opponentNameOrHero: snapshot.opponent?.name || snapshot.opponent?.hero,
-              playerNameOrHero: snapshot.player?.name || snapshot.player?.hero,
-            });
-          } catch (e) {
-            console.warn('[Talishar Log Exporter] Erro no autoCaptureEndGameStats inicial:', e);
+          for (let attempt = 0; attempt < 12; attempt++) {
+            await new Promise((r) => setTimeout(r, attempt === 0 ? 300 : 400));
+            const hasStatsElements =
+              findExcludeLastTurnCheckbox(document) !== null ||
+              findSwitchPlayerStatsButton(document) !== null ||
+              document.querySelector('[class*="excludeLastTurn"], [class*="EndGameStats"], [class*="statsContainer"]') !== null;
+
+            if (hasStatsElements) {
+              try {
+                autoStats = await autoCaptureEndGameStats(document, {
+                  opponentNameOrHero: snapshot.opponent?.name || snapshot.opponent?.hero,
+                  playerNameOrHero: snapshot.player?.name || snapshot.player?.hero,
+                });
+                if (autoStats.playerAvgTurnValue !== undefined || autoStats.opponentAvgTurnValue !== undefined) {
+                  console.log('[Talishar Log Exporter] ✅ Estatísticas capturadas na tentativa', attempt + 1, autoStats);
+                  break;
+                }
+              } catch (e) {
+                console.warn('[Talishar Log Exporter] Tentativa de autoCapture:', e);
+              }
+            }
           }
 
           const finalPlayerAvg = autoStats.playerAvgTurnValue ?? snapshot.player?.avgTurnValue;
@@ -283,6 +335,20 @@ export default defineContentScript({
           const finalPlayerName = registeredPlayerName || snapshot.player?.name || 'Jogador';
           const finalPlayerUsername = cachedPlayerUsername || snapshot.player?.username;
           const finalOpponentUsername = cachedOpponentUsername || snapshot.opponent?.username;
+
+          const finalPlayerEquipmentList =
+            initialPlayerEquipment.length > 0
+              ? initialPlayerEquipment
+              : snapshot.playerEquipment && snapshot.playerEquipment.length > 0
+              ? snapshot.playerEquipment
+              : cachedPlayerEquipment;
+
+          const finalOpponentEquipmentList =
+            initialOpponentEquipment.length > 0
+              ? initialOpponentEquipment
+              : snapshot.opponentEquipment && snapshot.opponentEquipment.length > 0
+              ? snapshot.opponentEquipment
+              : cachedOpponentEquipment;
 
           const completedMatch: MatchRecord = {
             id: `talishar-${Date.now()}`,
@@ -308,14 +374,8 @@ export default defineContentScript({
             result: snapshot.result || 'unknown',
             turnsCount: snapshot.turnsCount || 1,
             sideboardCards: savedAdjustment?.cardsLeftOut || [],
-            playerEquipment:
-              snapshot.playerEquipment && snapshot.playerEquipment.length > 0
-                ? snapshot.playerEquipment
-                : cachedPlayerEquipment,
-            opponentEquipment:
-              snapshot.opponentEquipment && snapshot.opponentEquipment.length > 0
-                ? snapshot.opponentEquipment
-                : cachedOpponentEquipment,
+            playerEquipment: finalPlayerEquipmentList,
+            opponentEquipment: finalOpponentEquipmentList,
             notes: '',
             rawLogs: snapshot.rawLogs || [],
             format: snapshot.format || 'CC',
@@ -342,16 +402,28 @@ export default defineContentScript({
         })().catch(console.error);
       }
 
-      // 4. If match ended and modal is open, poll opponent tab stats at most once per second
+      // 4. If match ended and modal is open, continuously watch for opponent stats
       if (matchEndedHandled && modalElement && document.contains(modalElement)) {
-        const stats = parseAverageTurnValues(
-          document,
-          (modalElement as any)._oppName,
-          (modalElement as any)._playerName,
-          (modalElement as any)._playerAvg
-        );
-        if (stats.opponentAvgTurnValue !== undefined) {
-          (modalElement as any).updateOpponentAvg?.(stats.opponentAvgTurnValue);
+        if (
+          findExcludeLastTurnCheckbox(document) !== null ||
+          findSwitchPlayerStatsButton(document) !== null
+        ) {
+          if ((modalElement as any)._hasOpponentAvg !== true) {
+            autoCaptureEndGameStats(document, {
+              opponentNameOrHero: (modalElement as any)._oppName,
+              playerNameOrHero: (modalElement as any)._playerName,
+            })
+              .then((st) => {
+                if (st.playerAvgTurnValue !== undefined) {
+                  (modalElement as any).updatePlayerAvg?.(st.playerAvgTurnValue);
+                }
+                if (st.opponentAvgTurnValue !== undefined) {
+                  (modalElement as any).updateOpponentAvg?.(st.opponentAvgTurnValue);
+                  (modalElement as any)._hasOpponentAvg = true;
+                }
+              })
+              .catch(() => {});
+          }
         }
       }
     };
@@ -441,8 +513,11 @@ export default defineContentScript({
           const domSnapshot = extractMatchRecordFromDom(document, {
             cachedPlayerEquipment,
             cachedOpponentEquipment,
+            initialPlayerEquipment,
+            initialOpponentEquipment,
             cachedPlayerFatigue,
             cachedOpponentFatigue,
+            turnHands,
           });
           const hasDomGame = Boolean(
             (domSnapshot.player?.hero && domSnapshot.player.hero !== '-') ||
@@ -564,8 +639,11 @@ export default defineContentScript({
         const domSnapshot = extractMatchRecordFromDom(document, {
           cachedPlayerEquipment,
           cachedOpponentEquipment,
+          initialPlayerEquipment,
+          initialOpponentEquipment,
           cachedPlayerFatigue,
           cachedOpponentFatigue,
+          turnHands,
         });
         if (autoStats.playerAvgTurnValue !== undefined && domSnapshot.player) {
           domSnapshot.player.avgTurnValue = autoStats.playerAvgTurnValue;

@@ -149,7 +149,7 @@ export function annotateMessageCardColors(el: HTMLElement): string {
     const currentText = cardEl.textContent || '';
     if (!currentText.trim()) return;
 
-    let detectedColor: string | null = null;
+    let detectedPitch: 'r' | 'y' | 'b' | null = null;
 
     if (
       classStr.includes('pitch1') ||
@@ -158,7 +158,7 @@ export function annotateMessageCardColors(el: HTMLElement): string {
       classStr.includes('-red') ||
       /\bred\b/.test(classStr)
     ) {
-      detectedColor = 'Vermelha';
+      detectedPitch = 'r';
     } else if (
       classStr.includes('pitch2') ||
       classStr.includes('pitch_2') ||
@@ -166,7 +166,7 @@ export function annotateMessageCardColors(el: HTMLElement): string {
       classStr.includes('-yellow') ||
       /\byellow\b/.test(classStr)
     ) {
-      detectedColor = 'Amarela';
+      detectedPitch = 'y';
     } else if (
       classStr.includes('pitch3') ||
       classStr.includes('pitch_3') ||
@@ -174,10 +174,10 @@ export function annotateMessageCardColors(el: HTMLElement): string {
       classStr.includes('-blue') ||
       /\bblue\b/.test(classStr)
     ) {
-      detectedColor = 'Azul';
+      detectedPitch = 'b';
     }
 
-    if (!detectedColor) {
+    if (!detectedPitch) {
       if (
         styleColor.includes('red') ||
         styleColor.includes('rgb(239') ||
@@ -185,7 +185,7 @@ export function annotateMessageCardColors(el: HTMLElement): string {
         styleColor.includes('#ef') ||
         styleBg.includes('red')
       ) {
-        detectedColor = 'Vermelha';
+        detectedPitch = 'r';
       } else if (
         styleColor.includes('yellow') ||
         styleColor.includes('gold') ||
@@ -194,7 +194,7 @@ export function annotateMessageCardColors(el: HTMLElement): string {
         styleColor.includes('#eab') ||
         styleColor.includes('#f59')
       ) {
-        detectedColor = 'Amarela';
+        detectedPitch = 'y';
       } else if (
         styleColor.includes('blue') ||
         styleColor.includes('cyan') ||
@@ -202,40 +202,32 @@ export function annotateMessageCardColors(el: HTMLElement): string {
         styleColor.includes('rgb(14') ||
         styleColor.includes('#3b8')
       ) {
-        detectedColor = 'Azul';
+        detectedPitch = 'b';
       }
     }
 
-    if (!detectedColor) {
+    if (!detectedPitch) {
       const img = cardEl.querySelector('img');
       const src = img?.getAttribute('src')?.toLowerCase() || '';
       const alt = img?.getAttribute('alt')?.toLowerCase() || '';
       if (src.includes('pitch1') || src.includes('red') || alt.includes('pitch 1') || alt.includes('red')) {
-        detectedColor = 'Vermelha';
+        detectedPitch = 'r';
       } else if (src.includes('pitch2') || src.includes('yellow') || alt.includes('pitch 2') || alt.includes('yellow')) {
-        detectedColor = 'Amarela';
+        detectedPitch = 'y';
       } else if (src.includes('pitch3') || src.includes('blue') || alt.includes('pitch 3') || alt.includes('blue')) {
-        detectedColor = 'Azul';
+        detectedPitch = 'b';
       }
     }
 
-    if (detectedColor) {
+    if (detectedPitch) {
       if (
-        !currentText.includes('Vermelha') &&
-        !currentText.includes('Amarela') &&
-        !currentText.includes('Azul') &&
-        !currentText.includes('(Red)') &&
-        !currentText.includes('(Yellow)') &&
-        !currentText.includes('(Blue)')
+        !/\([ryb]\)/i.test(currentText) &&
+        !/\((?:Red|Yellow|Blue|Vermelha|Amarela|Azul)\)/i.test(currentText)
       ) {
-        if (/\(1\)/.test(currentText)) {
-          cardEl.textContent = currentText.replace(/\(1\)/, `(1 - ${detectedColor})`);
-        } else if (/\(2\)/.test(currentText)) {
-          cardEl.textContent = currentText.replace(/\(2\)/, `(2 - ${detectedColor})`);
-        } else if (/\(3\)/.test(currentText)) {
-          cardEl.textContent = currentText.replace(/\(3\)/, `(3 - ${detectedColor})`);
+        if (/\([123]\)/.test(currentText)) {
+          cardEl.textContent = currentText.replace(/\([123]\)/, `(${detectedPitch})`);
         } else {
-          cardEl.textContent = `${currentText} (${detectedColor})`;
+          cardEl.textContent = `${currentText} (${detectedPitch})`;
         }
       }
     }
@@ -243,10 +235,20 @@ export function annotateMessageCardColors(el: HTMLElement): string {
 
   let raw = clone.textContent?.replace(/\s+/g, ' ').trim() || '';
 
-  // Global pitch number translations: (1) -> (1 - Vermelha), (2) -> (2 - Amarela), (3) -> (3 - Azul)
-  raw = raw.replace(/\(1\)(?!\s*-\s*Vermelha)/g, '(1 - Vermelha)');
-  raw = raw.replace(/\(2\)(?!\s*-\s*Amarela)/g, '(2 - Amarela)');
-  raw = raw.replace(/\(3\)(?!\s*-\s*Azul)/g, '(3 - Azul)');
+  // Global pitch translations to concise community standard: (r), (y), (b)
+  raw = raw
+    .replace(/\(1\s*-\s*Vermelha\)/gi, '(r)')
+    .replace(/\(2\s*-\s*Amarela\)/gi, '(y)')
+    .replace(/\(3\s*-\s*Azul\)/gi, '(b)')
+    .replace(/\(Red\)/gi, '(r)')
+    .replace(/\(Yellow\)/gi, '(y)')
+    .replace(/\(Blue\)/gi, '(b)')
+    .replace(/\(Vermelha\)/gi, '(r)')
+    .replace(/\(Amarela\)/gi, '(y)')
+    .replace(/\(Azul\)/gi, '(b)')
+    .replace(/\(1\)/g, '(r)')
+    .replace(/\(2\)/g, '(y)')
+    .replace(/\(3\)/g, '(b)');
 
   return raw;
 }
@@ -280,6 +282,8 @@ export function parseCombatLogs(doc: Document): string[] {
     return true;
   });
 
+  let currentChainLink = 0;
+
   if (elements.length > 0) {
     elements.forEach((el) => {
       const className = el.className || '';
@@ -288,15 +292,38 @@ export function parseCombatLogs(doc: Document): string[] {
         typeof className === 'string' &&
         (className.includes('turnDivider') || className.includes('TurnDivider'))
       ) {
+        currentChainLink = 0;
         const label = el.querySelector('[class*="turnDividerLabel"], [class*="TurnDividerLabel"]')?.textContent?.trim();
         const player = el.querySelector('[class*="turnDividerPlayer"], [class*="TurnDividerPlayer"]')?.textContent?.trim();
         if (label && player) {
-          text = `${label} - ${player}`;
+          text = `--- ${label} - ${player} ---`;
         } else {
-          text = el.textContent?.replace(/\s+/g, ' ').trim() || '';
+          const raw = el.textContent?.replace(/\s+/g, ' ').trim() || '';
+          text = raw.startsWith('---') ? raw : `--- ${raw} ---`;
+        }
+      } else if (
+        typeof className === 'string' &&
+        className.includes('combatGroupLabel')
+      ) {
+        text = el.textContent?.replace(/\s+/g, ' ').trim() || '';
+        const linkMatch = text.match(/chain\s*link\s*(\d+)/i);
+        if (linkMatch) {
+          currentChainLink = parseInt(linkMatch[1], 10);
         }
       } else {
         text = annotateMessageCardColors(el);
+        if (/combat chain was closed/i.test(text)) {
+          currentChainLink = 0;
+        } else if (
+          /played\s+.+?\s+for\s+\d+/i.test(text) ||
+          /attacks?\s+with/i.test(text) ||
+          /attacked?\s+with/i.test(text)
+        ) {
+          if (!/chain\s*link/i.test(text)) {
+            currentChainLink++;
+            text = `[Chain Link ${currentChainLink}] ${text}`;
+          }
+        }
       }
 
       if (text.length > 0) {
@@ -308,8 +335,23 @@ export function parseCombatLogs(doc: Document): string[] {
     const fallbackEls = chatBox.querySelectorAll('div > div');
     fallbackEls.forEach((el) => {
       if (el.querySelectorAll('div').length > 0) return;
-      const text = annotateMessageCardColors(el as HTMLElement);
+      let text = annotateMessageCardColors(el as HTMLElement);
       if (text && text.length > 0) {
+        if (/turn\s*\d+/i.test(text) && !text.includes('---')) {
+          currentChainLink = 0;
+          text = `--- ${text} ---`;
+        } else if (/combat chain was closed/i.test(text)) {
+          currentChainLink = 0;
+        } else if (
+          /played\s+.+?\s+for\s+\d+/i.test(text) ||
+          /attacks?\s+with/i.test(text) ||
+          /attacked?\s+with/i.test(text)
+        ) {
+          if (!/chain\s*link/i.test(text)) {
+            currentChainLink++;
+            text = `[Chain Link ${currentChainLink}] ${text}`;
+          }
+        }
         logs.push(text);
       }
     });
@@ -505,10 +547,14 @@ export function findExcludeLastTurnCheckbox(doc: Document = document): HTMLInput
 /**
  * Locates the "Switch Player Stats" button in the Talishar end-game stats modal.
  */
-export function findSwitchPlayerStatsButton(doc: Document = document): HTMLButtonElement | null {
-  const buttons = Array.from(doc.querySelectorAll<HTMLButtonElement>('button'));
+export function findSwitchPlayerStatsButton(doc: Document = document): HTMLElement | null {
+  const elements = Array.from(
+    doc.querySelectorAll<HTMLElement>(
+      'button, div[class*="buttonDiv"], div[role="button"], span[class*="button"], a[role="button"]'
+    )
+  );
   return (
-    buttons.find((b) => {
+    elements.find((b) => {
       const txt = b.textContent?.trim().toLowerCase() || '';
       return (
         txt.includes('switch player stats') ||
@@ -538,13 +584,17 @@ export async function autoCaptureEndGameStats(
   playerAvgTurnValue?: number;
   opponentAvgTurnValue?: number;
 }> {
-  const waitTime = options?.waitMs ?? 70;
+  const waitTime = options?.waitMs ?? 220;
 
   // 1. Ensure "Exclude Last Turn" checkbox is clicked/checked if present
   const excludeCb = findExcludeLastTurnCheckbox(doc);
   if (excludeCb && !excludeCb.checked) {
     try {
-      excludeCb.click();
+      if (typeof excludeCb.click === 'function') {
+        excludeCb.click();
+      } else {
+        excludeCb.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }
       await new Promise((r) => setTimeout(r, waitTime));
     } catch (e) {
       console.warn('[Talishar Log Exporter] Falha ao marcar excludeLastTurn:', e);
@@ -562,15 +612,23 @@ export async function autoCaptureEndGameStats(
   // 3. Find and toggle "Switch Player Stats" button
   const switchBtn = findSwitchPlayerStatsButton(doc);
   if (switchBtn) {
+    const triggerClick = (el: HTMLElement) => {
+      if (typeof el.click === 'function') {
+        el.click();
+      } else {
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }
+    };
+
     try {
-      // Switch view
-      switchBtn.click();
-      await new Promise((r) => setTimeout(r, waitTime));
+      // Switch view to opposite player
+      triggerClick(switchBtn);
+      await new Promise((r) => setTimeout(r, waitTime + 60));
 
       // Also ensure excludeLastTurn is checked on the switched view if separate
       const switchedExcludeCb = findExcludeLastTurnCheckbox(doc);
       if (switchedExcludeCb && !switchedExcludeCb.checked) {
-        switchedExcludeCb.click();
+        triggerClick(switchedExcludeCb);
         await new Promise((r) => setTimeout(r, waitTime));
       }
 
@@ -588,7 +646,7 @@ export async function autoCaptureEndGameStats(
     } finally {
       // Always switch back so user view remains unchanged
       try {
-        switchBtn.click();
+        triggerClick(switchBtn);
         await new Promise((r) => setTimeout(r, waitTime));
       } catch {}
     }
@@ -598,6 +656,74 @@ export async function autoCaptureEndGameStats(
     playerAvgTurnValue: playerAvg,
     opponentAvgTurnValue: oppAvg,
   };
+}
+
+/**
+ * Extracts cards currently in the player's hand, formatted with pitch suffixes (r), (y), (b).
+ * Avoids opponent zones and equipment hands slots.
+ */
+export function extractPlayerHand(doc: Document = document): string[] {
+  // Select candidate hand containers, ensuring we avoid equipment 'Hands' slots
+  const candidates = Array.from(
+    doc.querySelectorAll<HTMLElement>(
+      '[class*="handZone"], [class*="HandZone"], [class*="playerHand"], [class*="PlayerHand"], [class*="myHand"], [class*="pOneHandZone"], [class*="pOneHand"], [class*="handContainer"], [class*="hand_"], [class*="Hand_"]'
+    )
+  ).filter((el) => {
+    const c = el.className?.toString().toLowerCase() || '';
+    // Exclude equipment zones e.g. pOneHands, pTwoHands, handsZone, handslot
+    if (c.includes('ponehands') || c.includes('ptwohands') || c.includes('handszone') || c.includes('handslot')) {
+      return false;
+    }
+    // Also avoid opponent containers
+    if (c.includes('ptwo') || c.includes('opponent')) {
+      return false;
+    }
+    return true;
+  });
+
+  const handCards: string[] = [];
+
+  for (const container of candidates) {
+    const imgs = Array.from(container.querySelectorAll<HTMLImageElement>('img'));
+    for (const img of imgs) {
+      const alt = img.getAttribute('alt')?.trim();
+      const title = img.getAttribute('title')?.trim();
+      const src = img.getAttribute('src')?.trim();
+      const rawName = alt || title || src;
+      if (rawName) {
+        const formatted = formatTalisharCardName(rawName);
+        const lower = formatted.toLowerCase();
+        if (
+          formatted &&
+          !lower.includes('hero') &&
+          !lower.includes('portrait') &&
+          !lower.includes('avatar') &&
+          !lower.includes('token') &&
+          !lower.includes('playmat') &&
+          !lower.includes('back')
+        ) {
+          handCards.push(formatted);
+        }
+      }
+    }
+    if (handCards.length > 0) break;
+  }
+
+  // Fallback: If no candidate container found, check bottom region of page for cards
+  if (handCards.length === 0) {
+    const allCards = Array.from(doc.querySelectorAll<HTMLImageElement>('img[src*="/cards/"], img[src*="cardsquares"]'));
+    for (const img of allCards) {
+      const parent = img.closest('[class*="Head"], [class*="Chest"], [class*="Hands"], [class*="Legs"], [class*="Weapon"], [class*="Deck"], [class*="Graveyard"], [class*="Banish"], [class*="Pitch"], [class*="Combat"]');
+      if (parent) continue; // Belongs to a board zone
+      const rawName = img.alt || img.title || img.src;
+      if (rawName) {
+        const formatted = formatTalisharCardName(rawName);
+        if (formatted) handCards.push(formatted);
+      }
+    }
+  }
+
+  return handCards;
 }
 
 /**
@@ -663,7 +789,11 @@ export function parseAverageTurnValues(
     const parentRow = valEl.closest('[class*="infoRow"], [class*="InfoRow"], tr, div, li');
     const rowText = parentRow ? parentRow.textContent || '' : '';
 
-    if (/Avg Value per Turn|Average Value per Turn|Valor M[eé]dio por Turno/i.test(rowText)) {
+    if (
+      !/damage|dano|threatened/i.test(rowText) &&
+      (/(?:Avg|Average|Valor\s*M[eé]dio).*?(?:Turn|Turno|Value|Valor)/i.test(rowText) ||
+        /Value\s*\/\s*Turn/i.test(rowText))
+    ) {
       const numMatch = text.match(/(\d+(?:[.,]\d+)?)/);
       if (numMatch) {
         const val = parseFloat(numMatch[1].replace(',', '.'));
@@ -712,9 +842,13 @@ export function parseAverageTurnValues(
       if (candidates.length > 0 && row.querySelectorAll('[class*="infoRow"], [class*="InfoRow"]').length > 0) {
         continue;
       }
-
       const text = row.textContent || '';
-      if (/Avg Value per Turn|Average Value per Turn|Valor M[eé]dio por Turno/i.test(text)) {
+
+      if (
+        !/damage|dano|threatened/i.test(text) &&
+        (/(?:Avg|Average|Valor\s*M[eé]dio).*?(?:Turn|Turno|Value|Valor)/i.test(text) ||
+          /Value\s*\/\s*Turn/i.test(text))
+      ) {
         const isExplicitPlayer =
           /Player Avg|My Avg|Meu Valor/i.test(text) ||
           row.closest('.playerStats, [class*="playerBoard"]') !== null;
@@ -1131,13 +1265,35 @@ export function extractMatchRecordFromDom(
   options?: {
     cachedPlayerEquipment?: string[];
     cachedOpponentEquipment?: string[];
+    initialPlayerEquipment?: string[];
+    initialOpponentEquipment?: string[];
     cachedPlayerFatigue?: number;
     cachedOpponentFatigue?: number;
+    turnHands?: Map<number, string[]> | Record<number, string[]>;
   }
 ): Partial<MatchRecord> {
   const { player: playerName, opponent: oppName, playerUsername, opponentUsername } = parsePlayerNames(doc);
   const { playerHero, opponentHero } = parseHeroNames(doc);
-  const rawLogs = parseCombatLogs(doc);
+  const parsedLogs = parseCombatLogs(doc);
+
+  let rawLogs = parsedLogs;
+  if (options?.turnHands) {
+    const hands = options.turnHands;
+    const enriched: string[] = [];
+    for (const line of parsedLogs) {
+      enriched.push(line);
+      const match = line.match(/Turn\s+(\d+)/i);
+      if (match) {
+        const turnNo = parseInt(match[1], 10);
+        const cards = hands instanceof Map ? hands.get(turnNo) : (hands as any)[turnNo];
+        if (cards && cards.length > 0) {
+          enriched.push(`[Mão Comprada - Turno ${turnNo}]: ${cards.join(', ')}`);
+        }
+      }
+    }
+    rawLogs = enriched;
+  }
+
   const turnsCount = parseTurnCount(doc, rawLogs);
   const result = parseMatchResult(doc, rawLogs, playerName, oppName);
   const wentFirst = parseWentFirst(rawLogs, playerName || playerUsername, oppName || opponentUsername);
@@ -1148,9 +1304,24 @@ export function extractMatchRecordFromDom(
   );
   const { playerEquipment, opponentEquipment } = parseEquipment(
     doc,
-    options?.cachedPlayerEquipment,
-    options?.cachedOpponentEquipment
+    options?.initialPlayerEquipment && options.initialPlayerEquipment.length > 0
+      ? options.initialPlayerEquipment
+      : options?.cachedPlayerEquipment,
+    options?.initialOpponentEquipment && options.initialOpponentEquipment.length > 0
+      ? options.initialOpponentEquipment
+      : options?.cachedOpponentEquipment
   );
+
+  const finalPlayerEquipment =
+    options?.initialPlayerEquipment && options.initialPlayerEquipment.length > 0
+      ? options.initialPlayerEquipment
+      : playerEquipment;
+
+  const finalOpponentEquipment =
+    options?.initialOpponentEquipment && options.initialOpponentEquipment.length > 0
+      ? options.initialOpponentEquipment
+      : opponentEquipment;
+
   const { playerFatigue, opponentFatigue } = parseFatigue(
     doc,
     options?.cachedPlayerFatigue,
@@ -1193,8 +1364,8 @@ export function extractMatchRecordFromDom(
     result,
     turnsCount,
     rawLogs,
-    playerEquipment,
-    opponentEquipment,
+    playerEquipment: finalPlayerEquipment,
+    opponentEquipment: finalOpponentEquipment,
     format: 'CC',
     wentFirst,
     platform: 'Talishar',
