@@ -119,7 +119,38 @@ describe('CsvFormatter (PT-BR Excel & Full Log)', () => {
     };
 
     const fullLog = formatFullLogText(chainMatch);
-    expect(fullLog).toContain('[Chain Link 1] Beaming Bravado (y) — 6 de dano');
-    expect(fullLog).toContain('[Chain Link 2] Raydn, Duskbane — 0 de dano (bloqueado)');
+    expect(fullLog).toContain('[Chain Link 1] Beaming Bravado (y) (Poder: 6) — 6 de dano');
+    expect(fullLog).toContain('[Chain Link 2] Raydn, Duskbane (Poder: 3) — 0 de dano (bloqueado por 3)');
+  });
+
+  it('should infer player hero from combat log targets and export it into CSV Deck column instead of dash', () => {
+    const matchWithMissingHero: MatchRecord = {
+      ...sampleMatch,
+      player: { name: 'akiles185', hero: '-' },
+      opponent: { name: 'TheLegend27', hero: 'Vynnset Iron Maiden' },
+      rawLogs: [
+        '--- Turn 1 - akiles185 ---',
+        'Chain Link 1',
+        'akiles185 played Bolt of Courage (y)',
+        '🎯Vynnset, Iron Maiden was chosen as the target.',
+        '--- Turn 1 - Vynnset Iron Maiden ---',
+        'Chain Link 1',
+        'Vynnset Iron Maiden played Widespread Annihilation',
+        '🎯Ser Boltyn, Breaker of Dawn was chosen as the target.',
+        'akiles185 blocked with Longsword Leggings',
+        'akiles185 is about to take 5 damage from Widespread Annihilation',
+        'akiles185 took 5 damage',
+        'The combat chain was closed.',
+      ],
+    };
+
+    const csv = formatMatchSummaryCsv(matchWithMissingHero);
+    expect(csv).toContain(';"Ser Boltyn, Breaker of Dawn";');
+    expect(csv).not.toContain(';"-";"Vynnset');
+
+    const fullLog = formatFullLogText(matchWithMissingHero);
+    expect(fullLog).toContain('Jogador: akiles185 (Ser Boltyn, Breaker of Dawn)');
+    expect(fullLog).toContain('Widespread Annihilation (r)');
+    expect(fullLog).toContain('(Poder: 6) — 5 de dano (1 bloqueado)');
   });
 });

@@ -68,22 +68,156 @@ function translateResult(result: MatchResult): string {
   }
 }
 
+export function inferHeroesFromLogs(
+  logs?: string[],
+  player?: { name?: string; username?: string; hero?: string },
+  opponent?: { name?: string; username?: string; hero?: string }
+): { playerHero?: string; opponentHero?: string } {
+  if (!logs || logs.length === 0) return {};
+
+  const fabHeroes = [
+    'Ser Boltyn, Breaker of Dawn',
+    'Ser Boltyn',
+    'Vynnset, Iron Maiden',
+    'Vynnset',
+    'Kayo, Armed and Dangerous',
+    'Kayo',
+    'Dorinthea Ironsong',
+    'Dorinthea',
+    'Bravo, Showstopper',
+    'Bravo, Star of the Show',
+    'Bravo',
+    'Levia, Shadowborn Abomination',
+    'Levia',
+    'Katsu, the Wanderer',
+    'Katsu',
+    'Ira, Crimson Haze',
+    'Rhinar, Reckless Rampage',
+    'Dash, Inventor Extraordinaire',
+    'Dash, Database',
+    'Dash',
+    'Uzuri, Switchblade',
+    'Dromai, Ash Artist',
+    'Fai, Rising Rebellion',
+    'Prism, Sculptor of Light',
+    'Prism, Awakener of Sol',
+    'Chane, Bound by Shadow',
+    'Briar, Warden of Thorns',
+    'Oldhim, Grandfather of Eternity',
+    'Lexi, Livewire',
+    'Viserai, Rune Blood',
+    'Azalea, Ace in the Hole',
+    'Kano, Dracai of Aether',
+    'Victor Goldmane',
+    'Betsy, Skin in the Game',
+    'Kassai of the Golden Sand',
+    'Olympia, Prized Fighter',
+    'Zen, Tamer of Purpose',
+    'Enigma, Ledger of Ancestry',
+    'Nuu, Alluring Desire',
+    'Aurora, Shooting Star',
+    'Florian, Rotwood Harbinger',
+    'Verdance, Thorn of the Rose',
+    'Cindra, Dracai of Retribution',
+    'Gravy Bones, Shipwrecked Looter',
+    'Jarl Vetreidi',
+    'Arakni, Huntsman',
+    'Riptide, Lurker of the Deep',
+    'Benji, the Piercing Wind',
+  ];
+
+  const norm = (s?: string) => (s ? s.toLowerCase().replace(/[^a-z0-9]/g, '') : '');
+
+  let pFound = player?.hero && player.hero !== '-' ? player.hero : undefined;
+  let oFound = opponent?.hero && opponent.hero !== '-' ? opponent.hero : undefined;
+
+  const pNames = [norm(player?.name), norm(player?.username)].filter(Boolean);
+  const oNames = [norm(opponent?.name), norm(opponent?.username)].filter(Boolean);
+
+  let lastActor: 'player' | 'opponent' | undefined;
+
+  for (let i = 0; i < logs.length; i++) {
+    const line = logs[i];
+
+    // Track active actor: "<Actor> played ...", "<Actor> activated ..."
+    const actionMatch = line.match(/^([A-Za-z0-9_,\s.'-]+?)\s+(?:played|activated|attacked|attacks)/i);
+    if (actionMatch) {
+      const actorNorm = norm(actionMatch[1]);
+      if (pNames.some((n) => actorNorm.includes(n)) || (pFound && actorNorm.includes(norm(pFound)))) {
+        lastActor = 'player';
+      } else if (oNames.some((n) => actorNorm.includes(n)) || (oFound && actorNorm.includes(norm(oFound)))) {
+        lastActor = 'opponent';
+      }
+    }
+
+    // Check target line: "🎯<TargetHero> was chosen as the target"
+    const targetMatch = line.match(/🎯\s*([A-Za-z0-9_,\s.'-]+?)\s+was chosen as the target/i);
+    if (targetMatch) {
+      const targetCandidate = targetMatch[1].trim();
+      const targetNorm = norm(targetCandidate);
+      const isOpponent = oFound ? norm(oFound).includes(targetNorm) || targetNorm.includes(norm(oFound)) : false;
+      const isPlayer = pFound ? norm(pFound).includes(targetNorm) || targetNorm.includes(norm(pFound)) : false;
+
+      if (lastActor === 'player' || isPlayer) {
+        if (!oFound && !isPlayer) oFound = targetCandidate;
+      } else if (lastActor === 'opponent' || isOpponent) {
+        if (!pFound && !isOpponent) pFound = targetCandidate;
+      } else {
+        if (oFound && !norm(oFound).includes(targetNorm) && !pFound) {
+          pFound = targetCandidate;
+        } else if (pFound && !norm(pFound).includes(targetNorm) && !oFound) {
+          oFound = targetCandidate;
+        }
+      }
+    }
+
+    // Direct hero activations / plays
+    for (const hero of fabHeroes) {
+      const hNorm = norm(hero);
+      if (line.includes(`activated ${hero}`) || line.includes(`${hero} played`)) {
+        if (!pFound && (!oFound || !norm(oFound).includes(hNorm))) {
+          pFound = hero;
+        } else if (!oFound && (!pFound || !norm(pFound).includes(hNorm))) {
+          oFound = hero;
+        }
+      }
+    }
+  }
+
+  return { playerHero: pFound, opponentHero: oFound };
+}
+
 function matchToCsvRow(match: MatchRecord): string {
+  let playerHero = match.player.hero;
+  let opponentHero = match.opponent.hero;
+
+  if ((!playerHero || playerHero === '-' || !opponentHero || opponentHero === '-') && match.rawLogs) {
+    const inferred = inferHeroesFromLogs(match.rawLogs, match.player, match.opponent);
+    if ((!playerHero || playerHero === '-') && inferred.playerHero) {
+      playerHero = inferred.playerHero;
+      match.player.hero = inferred.playerHero;
+    }
+    if ((!opponentHero || opponentHero === '-') && inferred.opponentHero) {
+      opponentHero = inferred.opponentHero;
+      match.opponent.hero = inferred.opponentHero;
+    }
+  }
+
   const sideboardText =
     match.sideboardCards && match.sideboardCards.length > 0
       ? match.sideboardCards.join(', ')
       : '-';
 
-  const matchTitle = match.opponent.hero || '-';
+  const matchTitle = opponentHero || '-';
   const wentFirstText = match.wentFirst === undefined ? '-' : match.wentFirst ? 'Sim' : 'Não';
   const platformText = match.platform || 'Talishar';
-  const opponentText = match.opponent.name || match.opponent.hero || 'Oponente';
+  const opponentText = match.opponent.name || opponentHero || 'Oponente';
   const formatText = match.format || 'CC';
 
   const fields = [
     escapeCsvField(formatDatePtBr(match.timestamp)),
     escapeCsvField(match.player.name || 'Jogador'),
-    escapeCsvField(match.player.hero || '-'),
+    escapeCsvField(playerHero || '-'),
     escapeCsvField(matchTitle),
     escapeCsvField(formatText),
     escapeCsvField(translateResult(match.result)),
@@ -245,6 +379,29 @@ export const KNOWN_FAB_PITCHES: Record<string, 'r' | 'y' | 'b'> = {
   'celestial cataclysm': 'y',
   'tenacity': 'y',
 
+  // Shadow / Runeblade / Vynnset
+  'enshrine sin': 'b',
+  'widespread annihilation': 'r',
+  'deadwood dirge': 'r',
+  'deathly delight': 'r',
+  'deathly wail': 'r',
+  'cull': 'r',
+  'widespread ruin': 'r',
+  'funeral moon': 'b',
+  'eloquent eulogy': 'b',
+  'shadow puppetry': 'r',
+  'become the shadow lord': 'b',
+  'requiem for the damned': 'y',
+  'succumb to temptation': 'r',
+  'soul of existence': 'b',
+  'deep recesses of existence': 'b',
+  'fasting carcass': 'y',
+  'cullingsong gloomblade': 'b',
+  'runeblood barrier': 'r',
+  'meat and greet': 'r',
+  'marrow drain': 'r',
+  'flail of agony': 'r',
+
   // Shadow / Brute / Levia
   'cleave the heavens': 'r',
   'engulfing shadows': 'r',
@@ -285,6 +442,11 @@ export const KNOWN_FAB_PITCHES: Record<string, 'r' | 'y' | 'b'> = {
   'shake down': 'r',
   'swarming gloomveil': 'r',
   'preach': 'r',
+  'oasis respite': 'r',
+  'peace of mind': 'b',
+  'snatch': 'r',
+  'cast bones': 'r',
+  'wild ride': 'r',
 };
 
 /**
@@ -349,6 +511,125 @@ export function decorateLineWithPitches(line: string, pitchMap: Map<string, 'r' 
   return modified;
 }
 
+export const NON_ATTACK_CARDS = new Set([
+  'lumina ascension',
+  'blessing of bellona',
+  'blessing of aegis',
+  'blessing of suraya',
+  'blessing of themis',
+  'blessing of deliverance',
+  'blessing of spirits',
+  'prayer of bellona',
+  'spirit of eirina',
+  'beacon of victory',
+  'enshrine sin',
+  'deadwood dirge',
+  'succumb to temptation',
+  'funeral moon',
+  'eloquent eulogy',
+  'shadow puppetry',
+  'pull from beyond',
+  'saving grace',
+  'sink below',
+  'fate foreseen',
+  'bloodrush bellow',
+  'art of war',
+  'energy potion',
+  'potion of strength',
+  'fyendals spring tunic',
+  "fyendal's spring tunic",
+  'grasp of the arknight',
+  'spellbound creepers',
+  'grimoire of fellingsong',
+  'warband of bellona',
+  'solforge gauntlet',
+  'helm of halos grace',
+  'circlet of eternal end',
+  'face purgatory',
+  'sonata arcanix',
+  'read the runes',
+  'mordaunt tide',
+  'become the shadow lord',
+  'runeblood barrier',
+  'seeds of agony',
+  'sting of sorcery',
+  'slither',
+  'chains of eminence',
+  'lead the charge',
+  'captains call',
+  "captain's call",
+  'this rounds on me',
+  'hold the line',
+  'chaff parade',
+]);
+
+export const FAB_CARD_DEFENSE: Record<string, number> = {
+  // Equipment
+  'longsword leggings': 1,
+  'grasp of the arknight': 1,
+  'fyendals spring tunic': 1,
+  "fyendal's spring tunic": 1,
+  'solforge gauntlet': 1,
+  'warband of bellona': 2,
+  'crown of providence': 2,
+  'flail of agony': 0,
+  'spellbound creepers': 0,
+  'grimoire of fellingsong': 0,
+  'face purgatory': 0,
+  'ironrot': 1,
+  'ironhide': 1,
+  'goliath gauntlet': 0,
+  'barkbone strapping': 1,
+  'scabskin leathers': 1,
+  'carrion husk': 6,
+  'arcanite skullcap': 1,
+  'crown of reflection': 1,
+  'cranial crush': 0,
+  'halo of illumination': 1,
+  'helm of halos grace': 1,
+  'circlet of eternal end': 1,
+  'kabuto of imperial authority': 1,
+  'soulbond resolve': 2,
+  'ironsong versus': 1,
+  'warpath of winged grace': 1,
+
+  // Common Defense reactions & blocks
+  'sink below': 4,
+  'fate foreseen': 4,
+  'unmovable': 4,
+  'soul shield': 6,
+  'saving grace': 3,
+  'oasis respite': 4,
+  'peace of mind': 4,
+  'steadfast': 3,
+  'staunch response': 4,
+
+  // Common cards seen in blocks
+  'cull': 2,
+  'requiem for the damned': 3,
+  'widespread annihilation': 2,
+  'deadwood dirge': 2,
+  'deathly delight': 2,
+  'deathly wail': 2,
+  'widespread ruin': 2,
+  'beaming bravado': 2,
+  'bolt of courage': 2,
+  'bravery of the blade': 2,
+  'duty bound blitz': 2,
+  'take flight': 2,
+  'engulfing light': 2,
+  'v of the vanguard': 2,
+  'lumina ascension': 2,
+  'command and conquer': 3,
+  'enlightened strike': 3,
+  'pummel': 2,
+  'snatch': 2,
+  'celestial cataclysm': 0,
+  'blessing of bellona': 2,
+  'prayer of bellona': 2,
+  'tenacity': 2,
+};
+
 /**
  * Enriches Chain Link lines with the attack card and total damage/threatened value.
  */
@@ -366,7 +647,8 @@ export function enrichChainLinksWithDamage(
       const linkNum = chainMatch[1];
       let attackCard = '';
       let damageValue: number | undefined;
-
+      let blockedDefense = 0;
+      let explicitPower: number | undefined;
       let hasBlock = false;
 
       // Look ahead up to 18 lines for the attack resolution
@@ -378,28 +660,60 @@ export function enrichChainLinksWithDamage(
           break;
         }
 
-        // Damage detection: "is about to take X damage from <Card>" or "took X damage"
+        // Damage detection: "is about to take X damage from <Card>" takes top priority
         const dmgAboutMatch = nextLine.match(/is about to take\s*(\d+)\s*damage(?:\s+from\s*(.*))?/i);
         if (dmgAboutMatch) {
           damageValue = parseInt(dmgAboutMatch[1], 10);
-          if (!attackCard && dmgAboutMatch[2]?.trim()) attackCard = dmgAboutMatch[2].trim();
-        }
-
-        const tookDmgMatch = nextLine.match(/took\s*(\d+)\s*damage/i);
-        if (tookDmgMatch && damageValue === undefined) {
-          damageValue = parseInt(tookDmgMatch[1], 10);
+          if (dmgAboutMatch[2]?.trim()) {
+            const candidate = dmgAboutMatch[2].trim();
+            if (!NON_ATTACK_CARDS.has(candidate.toLowerCase())) {
+              attackCard = candidate;
+            }
+          }
         }
 
         const combatHitMatch = nextLine.match(/Combat resolved with a hit for\s*(\d+)\s*damage/i);
-        if (combatHitMatch && damageValue === undefined) {
+        if (combatHitMatch) {
           damageValue = parseInt(combatHitMatch[1], 10);
         }
 
-        if (
-          /Combat resolved with no hit/i.test(nextLine) ||
-          /(?:blocked|defended)\s+(?:with|for)/i.test(nextLine)
-        ) {
+        // Only consider generic took damage if not from Runechant/arcane
+        const tookDmgMatch = nextLine.match(/took\s*(\d+)\s*damage/i);
+        if (tookDmgMatch && damageValue === undefined) {
+          const prevLine = j > 0 ? lines[j - 1] : '';
+          if (!/Runechant|arcane\s+damage/i.test(prevLine)) {
+            damageValue = parseInt(tookDmgMatch[1], 10);
+          }
+        }
+
+        const blockedForMatch = nextLine.match(/(?:blocked|defended)\s+(?:with\s+.+?\s+)?for\s+(\d+)/i);
+        if (blockedForMatch) {
           hasBlock = true;
+          blockedDefense += parseInt(blockedForMatch[1], 10);
+        } else if (/(?:blocked|defended)\s+with\s+(.+)/i.test(nextLine)) {
+          hasBlock = true;
+          const matchWith = nextLine.match(/(?:blocked|defended)\s+with\s+(.+)/i);
+          if (matchWith) {
+            const cardsStr = matchWith[1];
+            const parts = cardsStr.split(/\s+and\s+|,\s*/i);
+            for (const c of parts) {
+              const cClean = c.replace(/\s*\([ryb]\)$/i, '').trim().toLowerCase();
+              if (FAB_CARD_DEFENSE[cClean] !== undefined) {
+                blockedDefense += FAB_CARD_DEFENSE[cClean];
+              }
+            }
+          }
+        } else if (/Combat resolved with no hit/i.test(nextLine)) {
+          hasBlock = true;
+        }
+
+        const playedForMatch = nextLine.match(/(?:played|attacks? with|attacked with)\s+(.+?)\s+for\s+(\d+)/i);
+        if (playedForMatch) {
+          const cand = playedForMatch[1].trim();
+          if (!attackCard && !NON_ATTACK_CARDS.has(cand.toLowerCase())) {
+            attackCard = cand;
+          }
+          explicitPower = parseInt(playedForMatch[2], 10);
         }
 
         // Attack card detection if not already found
@@ -409,9 +723,11 @@ export function enrichChainLinksWithDamage(
           );
           if (playedMatch) {
             const candidate = playedMatch[1].trim();
+            const lowerCand = candidate.toLowerCase();
             if (
-              !candidate.toLowerCase().includes('ability') &&
-              !candidate.toLowerCase().includes('pass')
+              !lowerCand.includes('ability') &&
+              !lowerCand.includes('pass') &&
+              !NON_ATTACK_CARDS.has(lowerCand)
             ) {
               attackCard = candidate;
             }
@@ -421,6 +737,15 @@ export function enrichChainLinksWithDamage(
 
       if (damageValue === undefined && hasBlock) {
         damageValue = 0;
+      }
+
+      let totalPower: number | undefined = explicitPower;
+      if (totalPower === undefined && damageValue !== undefined) {
+        if (damageValue > 0) {
+          totalPower = damageValue + (blockedDefense > 0 ? blockedDefense : 0);
+        } else if (blockedDefense > 0) {
+          totalPower = blockedDefense;
+        }
       }
 
       // Add pitch to attackCard if known
@@ -433,11 +758,21 @@ export function enrichChainLinksWithDamage(
 
       let formattedHeader = `[Chain Link ${linkNum}]`;
       if (attackCard) {
+        const powerDesc = totalPower !== undefined ? ` (Poder: ${totalPower})` : '';
         if (damageValue !== undefined) {
-          const dmgDesc = damageValue > 0 ? `${damageValue} de dano` : '0 de dano (bloqueado)';
-          formattedHeader = `[Chain Link ${linkNum}] ${attackCard} — ${dmgDesc}`;
+          let dmgDesc = '';
+          if (damageValue > 0) {
+            dmgDesc = blockedDefense > 0
+              ? `${damageValue} de dano (${blockedDefense} bloqueado)`
+              : `${damageValue} de dano`;
+          } else {
+            dmgDesc = blockedDefense > 0
+              ? `0 de dano (bloqueado por ${blockedDefense})`
+              : '0 de dano (bloqueado)';
+          }
+          formattedHeader = `[Chain Link ${linkNum}] ${attackCard}${powerDesc} — ${dmgDesc}`;
         } else {
-          formattedHeader = `[Chain Link ${linkNum}] ${attackCard}`;
+          formattedHeader = `[Chain Link ${linkNum}] ${attackCard}${powerDesc}`;
         }
       }
 
@@ -454,6 +789,21 @@ export function enrichChainLinksWithDamage(
  * Formats a human-readable complete match log including metadata and turn history.
  */
 export function formatFullLogText(match: MatchRecord): string {
+  let playerHero = match.player.hero;
+  let opponentHero = match.opponent.hero;
+
+  if ((!playerHero || playerHero === '-' || !opponentHero || opponentHero === '-') && match.rawLogs) {
+    const inferred = inferHeroesFromLogs(match.rawLogs, match.player, match.opponent);
+    if ((!playerHero || playerHero === '-') && inferred.playerHero) {
+      playerHero = inferred.playerHero;
+      match.player.hero = inferred.playerHero;
+    }
+    if ((!opponentHero || opponentHero === '-') && inferred.opponentHero) {
+      opponentHero = inferred.opponentHero;
+      match.opponent.hero = inferred.opponentHero;
+    }
+  }
+
   const sideboardText =
     match.sideboardCards && match.sideboardCards.length > 0
       ? match.sideboardCards.join(', ')
@@ -470,10 +820,10 @@ export function formatFullLogText(match: MatchRecord): string {
       : '-';
 
   const header = [
-    `=== PARTIDA TALISHAR: ${match.player.hero || 'Meu Herói'} vs ${match.opponent.hero || 'Oponente'} ===`,
+    `=== PARTIDA TALISHAR: ${playerHero || 'Meu Herói'} vs ${opponentHero || 'Oponente'} ===`,
     `Data: ${match.timestamp}`,
-    `Jogador: ${match.player.name || 'Jogador'} (${match.player.hero || '-'})`,
-    `Adversário: ${match.opponent.name || 'Oponente'} (${match.opponent.hero || '-'})`,
+    `Jogador: ${match.player.name || 'Jogador'} (${playerHero || '-'})`,
+    `Adversário: ${match.opponent.name || 'Oponente'} (${opponentHero || '-'})`,
     `Resultado: ${translateResult(match.result)}`,
     `Iniciou: ${match.wentFirst === undefined ? '-' : match.wentFirst ? 'Sim' : 'Não'}`,
     `Turnos: ${match.turnsCount}`,

@@ -585,5 +585,52 @@ describe('talisharDom parser', () => {
     expect(handLines).toHaveLength(1);
     expect(handLines[0]).toBe('[Mão Comprada - Turno 1]: Bolt of Courage (r)');
   });
+
+  it('should ignore gem slider and glow assets like Hexagonredgemglow in parseEquipment', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="GridBoard_pOneHero__123">
+        <div class="HeroZone_heroZone__abc">
+          <img alt="Ser Boltyn, Breaker of Dawn" src="/cards/boltyn.webp" />
+        </div>
+      </div>
+      <div class="GridBoard_pOneChest__456">
+        <img alt="Fyendals Spring Tunic" src="./WebpImages/tunic.webp" />
+        <div class="GemSlider_gemSlider__789">
+          <img alt="Hexagonredgemglow Bervdudx" src="./src/img/elements/hexagonRedGemGlow.webp" />
+        </div>
+      </div>
+    `;
+
+    const equip = parseEquipment(doc);
+    expect(equip.playerEquipment).toContain('Fyendals Spring Tunic');
+    expect(equip.playerEquipment.join(' ')).not.toContain('Hexagonredgemglow');
+    expect(equip.playerEquipment.join(' ')).not.toContain('gem');
+  });
+
+  it('should prepend Turn 0 divider when game actions precede the first turn divider', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="ChatBox_chatBox__xyz">
+        <div class="chatContent">
+          <div class="ChatBox_chatMessage__1">Vynnset Iron Maiden played Enshrine Sin</div>
+          <div class="ChatBox_chatMessage__2">Vynnset Iron Maiden passed</div>
+          <div class="ChatBox_chatMessage__3">Vynnset Iron Maiden lost 1 life due to Blood Debt</div>
+          <div class="ChatBox_turnDivider__111">
+            <span class="ChatBox_turnDividerLabel">Turn 1</span>
+            <span class="ChatBox_turnDividerPlayer">akiles185</span>
+          </div>
+          <div class="ChatBox_chatMessage__4">akiles185 played Bolt of Courage for 3</div>
+        </div>
+      </div>
+    `;
+
+    const logs = parseCombatLogs(doc);
+    expect(logs[0]).toBe('--- Turn 0 - Vynnset Iron Maiden ---');
+    expect(logs).toContain('--- Turn 1 - akiles185 ---');
+
+    const wentFirst = parseWentFirst(logs, 'akiles185', 'TheLegend27');
+    expect(wentFirst).toBe(false);
+  });
 });
 

@@ -11,6 +11,7 @@ import {
   findExcludeLastTurnCheckbox,
   extractPlayerHand,
   parseTurnCount,
+  parseHeroNames,
 } from '../src/parsers/talisharDom';
 import {
   trackLobbyDeckState,
@@ -46,6 +47,8 @@ export default defineContentScript({
     let cachedOpponentFatigue: number | undefined = undefined;
     let cachedPlayerUsername: string | undefined = undefined;
     let cachedOpponentUsername: string | undefined = undefined;
+    let cachedPlayerHero: string | undefined = undefined;
+    let cachedOpponentHero: string | undefined = undefined;
 
     // Helper to get or create a CMP-whitelisted container inside document.body so Talishar useAdScript never hides or locks it
     const getExtensionMountHost = (): HTMLElement => {
@@ -256,14 +259,40 @@ export default defineContentScript({
         if (liveNames.playerUsername) cachedPlayerUsername = liveNames.playerUsername;
         if (liveNames.opponentUsername) cachedOpponentUsername = liveNames.opponentUsername;
 
-        // Track player hand upon turn transition
+        const liveHeroes = parseHeroNames(document, combatLogs);
+        if (liveHeroes.playerHero && liveHeroes.playerHero !== '-') cachedPlayerHero = liveHeroes.playerHero;
+        if (liveHeroes.opponentHero && liveHeroes.opponentHero !== '-') cachedOpponentHero = liveHeroes.opponentHero;
+
+        // Track player hand throughout the game, preserving the fullest hand observed per turn (drawn hand)
         const currentTurnNo = parseTurnCount(document, combatLogs);
-        if (currentTurnNo > 0 && currentTurnNo !== lastHandLoggedTurn) {
+        if (currentTurnNo >= 0) {
           const knownEquip = [...initialPlayerEquipment, ...cachedPlayerEquipment];
           const hand = extractPlayerHand(document, knownEquip);
           if (hand.length > 0) {
-            turnHands.set(currentTurnNo, hand);
-            lastHandLoggedTurn = currentTurnNo;
+            const lastDivider = combatLogs.slice().reverse().find((l) => /^---?\s*Turn\s*\d+/i.test(l));
+            const isPlayerTurnActive = lastDivider && cachedPlayerUsername
+              ? lastDivider.toLowerCase().includes(cachedPlayerUsername.toLowerCase())
+              : true;
+
+            const existing = turnHands.get(currentTurnNo) || [];
+            if (hand.length >= existing.length) {
+              turnHands.set(currentTurnNo, hand);
+            }
+
+            // Always capture initial opening hand as Turn 1
+            if (!turnHands.has(1) && hand.length >= 3) {
+              turnHands.set(1, hand);
+            }
+
+            // If player draws a full hand (>= 3 cards) during opponent's turn or end of turn,
+            // preserve the hand for the upcoming turn (currentTurnNo + 1)
+            if (!isPlayerTurnActive && hand.length >= 3) {
+              const nextTurnNo = currentTurnNo + 1;
+              const nextExisting = turnHands.get(nextTurnNo) || [];
+              if (hand.length >= nextExisting.length) {
+                turnHands.set(nextTurnNo, hand);
+              }
+            }
           }
         }
 
@@ -325,6 +354,8 @@ export default defineContentScript({
             initialOpponentEquipment,
             cachedPlayerFatigue,
             cachedOpponentFatigue,
+            cachedPlayerHero,
+            cachedOpponentHero,
             turnHands,
           });
 
@@ -336,6 +367,15 @@ export default defineContentScript({
           const finalPlayerName = registeredPlayerName || snapshot.player?.name || 'Jogador';
           const finalPlayerUsername = cachedPlayerUsername || snapshot.player?.username;
           const finalOpponentUsername = cachedOpponentUsername || snapshot.opponent?.username;
+
+          const finalPlayerHero =
+            snapshot.player?.hero && snapshot.player.hero !== '-'
+              ? snapshot.player.hero
+              : cachedPlayerHero || '-';
+          const finalOpponentHero =
+            snapshot.opponent?.hero && snapshot.opponent.hero !== '-'
+              ? snapshot.opponent.hero
+              : cachedOpponentHero || '-';
 
           const finalPlayerEquipmentList =
             initialPlayerEquipment.length > 0
@@ -355,7 +395,7 @@ export default defineContentScript({
             id: `talishar-${Date.now()}`,
             timestamp: new Date().toISOString(),
             player: {
-              hero: snapshot.player?.hero || '-',
+              hero: finalPlayerHero,
               name: finalPlayerName,
               username: finalPlayerUsername,
               avgTurnValue: finalPlayerAvg,
@@ -364,7 +404,7 @@ export default defineContentScript({
               maxDamageTurn: snapshot.player?.maxDamageTurn,
             },
             opponent: {
-              hero: snapshot.opponent?.hero || '-',
+              hero: finalOpponentHero,
               name: snapshot.opponent?.name || 'Oponente',
               username: finalOpponentUsername,
               avgTurnValue: finalOpponentAvg,

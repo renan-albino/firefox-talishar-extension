@@ -1,5 +1,6 @@
 import type { MatchRecord, MatchResult, PlayerStats } from '../types/match';
 import { formatTalisharCardName } from './sideboardTracker';
+import { KNOWN_FAB_PITCHES, NON_ATTACK_CARDS } from '../formatters/csvFormatter';
 
 /**
  * Extracts player and opponent usernames from the Talishar DOM.
@@ -86,39 +87,126 @@ export function parsePlayerNames(doc: Document): {
 /**
  * Extracts hero names for both players from their respective Hero Zones.
  */
-export function parseHeroNames(doc: Document): { playerHero?: string; opponentHero?: string } {
+export function parseHeroNames(
+  doc: Document,
+  logs?: string[]
+): { playerHero?: string; opponentHero?: string } {
   let playerHero: string | undefined;
   let opponentHero: string | undefined;
 
-  const playerBoard = doc.querySelector('[class*="PlayerBoardGrid"], [class*="playerBoard"]');
-  const opponentBoard = doc.querySelector('[class*="OpponentBoardGrid"], [class*="opponentBoard"]');
-
   const extractHeroFromContainer = (container: Element | null): string | undefined => {
     if (!container) return undefined;
-    const heroZone = container.querySelector('[class*="heroZone"], [class*="HeroZone"]');
-    if (!heroZone) return undefined;
-
+    const heroZone =
+      container.querySelector('[class*="heroZone"], [class*="HeroZone"]') || container;
     const img = heroZone.querySelector('img');
     if (img) {
-      return img.getAttribute('title') || img.getAttribute('alt') || undefined;
+      const title = img.getAttribute('title')?.trim();
+      const alt = img.getAttribute('alt')?.trim();
+      if (title && !title.toLowerCase().includes('token') && !title.toLowerCase().includes('portrait')) {
+        return title;
+      }
+      if (alt && !alt.toLowerCase().includes('token') && !alt.toLowerCase().includes('portrait')) {
+        return alt;
+      }
+      const src = img.getAttribute('src');
+      if (src && (src.includes('/cards/') || src.includes('WebpImages') || src.includes('CardSquares'))) {
+        const formatted = formatTalisharCardName(src);
+        if (formatted && !formatted.toLowerCase().includes('token')) return formatted;
+      }
     }
-    return heroZone.textContent?.trim();
+    const text = heroZone.textContent?.trim();
+    if (text && text.length > 2 && text.length < 50 && !text.includes('\n')) return text;
+    return undefined;
   };
 
-  playerHero = extractHeroFromContainer(playerBoard);
-  opponentHero = extractHeroFromContainer(opponentBoard);
+  // 1. Desktop GridBoard zones (styles.pOneHero and styles.pTwoHero)
+  const pOneHeroContainer = doc.querySelector('[class*="pOneHero"], [class*="pOne_hero"]');
+  const pTwoHeroContainer = doc.querySelector('[class*="pTwoHero"], [class*="pTwo_hero"]');
+  if (pOneHeroContainer) playerHero = extractHeroFromContainer(pOneHeroContainer);
+  if (pTwoHeroContainer) opponentHero = extractHeroFromContainer(pTwoHeroContainer);
 
-  // Fallback: check any hero zone elements across document
+  // 2. Mobile/portrait layout fallback
+  if (!playerHero || !opponentHero) {
+    const playerBoard = doc.querySelector('[class*="PlayerBoardGrid"], [class*="playerBoard"]');
+    const opponentBoard = doc.querySelector('[class*="OpponentBoardGrid"], [class*="opponentBoard"]');
+    if (!playerHero) playerHero = extractHeroFromContainer(playerBoard);
+    if (!opponentHero) opponentHero = extractHeroFromContainer(opponentBoard);
+  }
+
+  // 3. Fallback: check any hero zone elements across document
   if (!playerHero || !opponentHero) {
     const heroZones = Array.from(doc.querySelectorAll('[class*="heroZone"], [class*="HeroZone"]'));
     if (heroZones.length >= 2) {
-      if (!opponentHero) {
-        const oppImg = heroZones[0].querySelector('img');
-        opponentHero = oppImg?.getAttribute('title') || oppImg?.getAttribute('alt') || heroZones[0].textContent?.trim();
-      }
-      if (!playerHero) {
-        const pImg = heroZones[1].querySelector('img');
-        playerHero = pImg?.getAttribute('title') || pImg?.getAttribute('alt') || heroZones[1].textContent?.trim();
+      if (!opponentHero) opponentHero = extractHeroFromContainer(heroZones[0]);
+      if (!playerHero) playerHero = extractHeroFromContainer(heroZones[1]);
+    }
+  }
+
+  // 4. Log-based hero detection fallback if either hero was not found in DOM
+  if ((!playerHero || !opponentHero) && logs && logs.length > 0) {
+    const fabHeroes = [
+      'Ser Boltyn, Breaker of Dawn',
+      'Ser Boltyn',
+      'Vynnset, Iron Maiden',
+      'Vynnset',
+      'Kayo, Armed and Dangerous',
+      'Kayo',
+      'Dorinthea Ironsong',
+      'Dorinthea',
+      'Bravo, Showstopper',
+      'Bravo, Star of the Show',
+      'Bravo',
+      'Levia, Shadowborn Abomination',
+      'Levia',
+      'Katsu, the Wanderer',
+      'Katsu',
+      'Ira, Crimson Haze',
+      'Rhinar, Reckless Rampage',
+      'Dash, Inventor Extraordinaire',
+      'Dash, Database',
+      'Dash',
+      'Uzuri, Switchblade',
+      'Dromai, Ash Artist',
+      'Fai, Rising Rebellion',
+      'Prism, Sculptor of Light',
+      'Prism, Awakener of Sol',
+      'Chane, Bound by Shadow',
+      'Briar, Warden of Thorns',
+      'Oldhim, Grandfather of Eternity',
+      'Lexi, Livewire',
+      'Viserai, Rune Blood',
+      'Azalea, Ace in the Hole',
+      'Kano, Dracai of Aether',
+      'Victor Goldmane',
+      'Betsy, Skin in the Game',
+      'Kassai of the Golden Sand',
+      'Olympia, Prized Fighter',
+      'Zen, Tamer of Purpose',
+      'Enigma, Ledger of Ancestry',
+      'Nuu, Alluring Desire',
+      'Aurora, Shooting Star',
+      'Florian, Rotwood Harbinger',
+      'Verdance, Thorn of the Rose',
+      'Cindra, Dracai of Retribution',
+      'Gravy Bones, Shipwrecked Looter',
+      'Jarl Vetreidi',
+      'Arakni, Huntsman',
+      'Riptide, Lurker of the Deep',
+      'Benji, the Piercing Wind',
+    ];
+
+    for (const line of logs) {
+      for (const hero of fabHeroes) {
+        if (line.includes(hero)) {
+          // If line is target or activated ability:
+          if (line.includes(`activated ${hero}`) || line.includes(`🎯${hero}`)) {
+            if (!playerHero && !line.includes(opponentHero || '___')) {
+              playerHero = hero;
+            } else if (!opponentHero && playerHero !== hero) {
+              opponentHero = hero;
+            }
+          }
+        }
       }
     }
   }
@@ -179,6 +267,9 @@ export function annotateMessageCardColors(el: HTMLElement): string {
 
     if (!detectedPitch) {
       if (
+        styleColor.includes('#af1518') ||
+        styleColor.includes('#af') ||
+        styleColor.includes('rgb(175') ||
         styleColor.includes('red') ||
         styleColor.includes('rgb(239') ||
         styleColor.includes('rgb(248') ||
@@ -187,6 +278,9 @@ export function annotateMessageCardColors(el: HTMLElement): string {
       ) {
         detectedPitch = 'r';
       } else if (
+        styleColor.includes('#daa520') ||
+        styleColor.includes('#daa') ||
+        styleColor.includes('rgb(218') ||
         styleColor.includes('yellow') ||
         styleColor.includes('gold') ||
         styleColor.includes('rgb(234') ||
@@ -196,12 +290,30 @@ export function annotateMessageCardColors(el: HTMLElement): string {
       ) {
         detectedPitch = 'y';
       } else if (
+        styleColor.includes('#009ddf') ||
+        styleColor.includes('#009') ||
+        styleColor.includes('rgb(0, 157') ||
         styleColor.includes('blue') ||
         styleColor.includes('cyan') ||
         styleColor.includes('rgb(59') ||
         styleColor.includes('rgb(14') ||
         styleColor.includes('#3b8')
       ) {
+        detectedPitch = 'b';
+      }
+    }
+
+    if (!detectedPitch) {
+      const mouseover = (
+        cardEl.getAttribute('onmouseover') ||
+        cardEl.parentElement?.getAttribute('onmouseover') ||
+        ''
+      ).toLowerCase();
+      if (mouseover.includes('_red.webp') || mouseover.includes('_red') || mouseover.includes('red.webp')) {
+        detectedPitch = 'r';
+      } else if (mouseover.includes('_yellow.webp') || mouseover.includes('_yellow') || mouseover.includes('yellow.webp')) {
+        detectedPitch = 'y';
+      } else if (mouseover.includes('_blue.webp') || mouseover.includes('_blue') || mouseover.includes('blue.webp')) {
         detectedPitch = 'b';
       }
     }
@@ -216,6 +328,13 @@ export function annotateMessageCardColors(el: HTMLElement): string {
         detectedPitch = 'y';
       } else if (src.includes('pitch3') || src.includes('blue') || alt.includes('pitch 3') || alt.includes('blue')) {
         detectedPitch = 'b';
+      }
+    }
+
+    if (!detectedPitch) {
+      const lowerText = currentText.toLowerCase().replace(/\s*\([ryb]\)$/i, '').trim();
+      if (KNOWN_FAB_PITCHES[lowerText]) {
+        detectedPitch = KNOWN_FAB_PITCHES[lowerText];
       }
     }
 
@@ -314,14 +433,28 @@ export function parseCombatLogs(doc: Document): string[] {
         text = annotateMessageCardColors(el);
         if (/combat chain was closed/i.test(text)) {
           currentChainLink = 0;
-        } else if (
-          /played\s+.+?\s+for\s+\d+/i.test(text) ||
-          /attacks?\s+with/i.test(text) ||
-          /attacked?\s+with/i.test(text)
-        ) {
-          if (!/chain\s*link/i.test(text)) {
-            currentChainLink++;
-            text = `[Chain Link ${currentChainLink}] ${text}`;
+        } else {
+          const isExplicitAttack =
+            /played\s+.+?\s+for\s+\d+/i.test(text) ||
+            /attacks?\s+with/i.test(text) ||
+            /attacked?\s+with/i.test(text);
+
+          const playedMatch = text.match(
+            /(?:played|activated|attacks?\s+with|attacked?\s+with)\s+(.+?)(?:\s+from\s+arsenal|\s+for\s+\d+|$)/i
+          );
+          if (playedMatch) {
+            const cardCand = playedMatch[1].replace(/\s*\([ryb]\)$/i, '').trim().toLowerCase();
+            const isNonAttack =
+              cardCand.includes('ability') ||
+              cardCand.includes('pass') ||
+              NON_ATTACK_CARDS.has(cardCand) ||
+              cardCand.includes('gem') ||
+              cardCand.includes('counter');
+
+            if ((isExplicitAttack || !isNonAttack) && !/chain\s*link/i.test(text)) {
+              currentChainLink++;
+              text = `[Chain Link ${currentChainLink}] ${text}`;
+            }
           }
         }
       }
@@ -342,27 +475,61 @@ export function parseCombatLogs(doc: Document): string[] {
           text = `--- ${text} ---`;
         } else if (/combat chain was closed/i.test(text)) {
           currentChainLink = 0;
-        } else if (
-          /played\s+.+?\s+for\s+\d+/i.test(text) ||
-          /attacks?\s+with/i.test(text) ||
-          /attacked?\s+with/i.test(text)
-        ) {
-          if (!/chain\s*link/i.test(text)) {
-            currentChainLink++;
-            text = `[Chain Link ${currentChainLink}] ${text}`;
+        } else {
+          const isExplicitAttack =
+            /played\s+.+?\s+for\s+\d+/i.test(text) ||
+            /attacks?\s+with/i.test(text) ||
+            /attacked?\s+with/i.test(text);
+
+          const playedMatch = text.match(
+            /(?:played|activated|attacks?\s+with|attacked?\s+with)\s+(.+?)(?:\s+from\s+arsenal|\s+for\s+\d+|$)/i
+          );
+          if (playedMatch) {
+            const cardCand = playedMatch[1].replace(/\s*\([ryb]\)$/i, '').trim().toLowerCase();
+            const isNonAttack =
+              cardCand.includes('ability') ||
+              cardCand.includes('pass') ||
+              NON_ATTACK_CARDS.has(cardCand) ||
+              cardCand.includes('gem') ||
+              cardCand.includes('counter');
+
+            if ((isExplicitAttack || !isNonAttack) && !/chain\s*link/i.test(text)) {
+              currentChainLink++;
+              text = `[Chain Link ${currentChainLink}] ${text}`;
+            }
           }
         }
-        logs.push(text);
+        if (text.length > 0) {
+          logs.push(text);
+        }
       }
     });
+  }
+
+  // If action messages occurred before the first turn divider, insert Turn 0
+  const firstDividerIdx = logs.findIndex((l) => /^---?\s*Turn\s*\d+/i.test(l));
+  if (firstDividerIdx > 0) {
+    const preActions = logs.slice(0, firstDividerIdx);
+    const hasGameActions = preActions.some((l) =>
+      /(?:played|activated|banished|pitched|lost \d+ life|gained \d+ life)/i.test(l)
+    );
+    if (hasGameActions) {
+      let actor = '';
+      for (const line of preActions) {
+        const m = line.match(/^([A-Za-z0-9_,\s]+?)\s+(?:played|activated|pitched|lost|passed|banished)/i);
+        if (m && !m[1].toLowerCase().includes('card')) {
+          actor = m[1].trim();
+          break;
+        }
+      }
+      const turn0Header = actor ? `--- Turn 0 - ${actor} ---` : '--- Turn 0 ---';
+      logs.unshift(turn0Header);
+    }
   }
 
   return logs;
 }
 
-/**
- * Extracts equipped items (head, chest, arms, legs, weapons, off-hand) from both player and opponent boards.
- */
 /**
  * Extracts equipped items (head, chest, arms, legs, weapons, off-hand) from both player and opponent boards.
  */
@@ -380,11 +547,35 @@ export function parseEquipment(
 
     const imgs = Array.from(container.querySelectorAll('img'));
     imgs.forEach((img) => {
+      if (
+        img.closest(
+          '[class*="gemSlider"], [class*="GemSlider"], [class*="countersOverlay"], [class*="CountersOverlay"], [class*="icon"], [class*="button"]'
+        )
+      ) {
+        return;
+      }
+
       const alt = img.getAttribute('alt')?.trim();
       const title = img.getAttribute('title')?.trim();
       const src = img.getAttribute('src') || '';
 
-      const candidate = alt || title || src;
+      const lowerSrc = src.toLowerCase();
+      if (
+        lowerSrc.includes('gem') ||
+        lowerSrc.includes('glow') ||
+        lowerSrc.includes('hexagon') ||
+        lowerSrc.includes('slider') ||
+        lowerSrc.includes('symbol') ||
+        lowerSrc.includes('icon') ||
+        lowerSrc.includes('button') ||
+        lowerSrc.includes('dice') ||
+        lowerSrc.includes('counter')
+      ) {
+        return;
+      }
+
+      const candidate =
+        alt || title || (src.includes('/cards/') || src.includes('WebpImages') || src.includes('CardSquares') ? src : '');
       if (candidate) {
         const formatted = formatTalisharCardName(candidate);
         const lower = formatted.toLowerCase();
@@ -396,7 +587,11 @@ export function parseEquipment(
           !lower.includes('token') &&
           !lower.includes('playmat') &&
           !lower.includes('difficulties') &&
-          !lower.includes('back')
+          !lower.includes('back') &&
+          !lower.includes('gem') &&
+          !lower.includes('glow') &&
+          !lower.includes('hexagon') &&
+          !lower.includes('slider')
         ) {
           equipNames.add(formatted);
         }
@@ -739,6 +934,47 @@ export function extractPlayerHand(
 ): string[] {
   // Normalize known equipment to lower case for exclusion
   const lowerEquip = new Set(knownEquipment.map((e) => e.trim().toLowerCase()).filter(Boolean));
+
+  // 0. Primary: inspect exact Talishar handRow container and handCard components
+  const handRows = Array.from(
+    doc.querySelectorAll<HTMLElement>('[class*="handRow"], [class*="handScrollInner"]')
+  );
+  for (const row of handRows) {
+    const cards: string[] = [];
+    const handCardElements = Array.from(
+      row.querySelectorAll<HTMLElement>('[class*="handCard"]')
+    );
+    for (const cardEl of handCardElements) {
+      if (
+        cardEl.querySelector(
+          'svg[title*="Arsenal"], svg[title*="Banish"], svg[title*="Graveyard"], [title="Arsenal"], [title="Banish"], [title="Graveyard"]'
+        )
+      ) {
+        continue;
+      }
+      const img = cardEl.querySelector('img');
+      const candidate =
+        img?.getAttribute('alt')?.trim() ||
+        img?.getAttribute('title')?.trim() ||
+        img?.getAttribute('src')?.trim();
+      if (candidate) {
+        const formatted = formatTalisharCardName(candidate);
+        const lower = formatted.toLowerCase();
+        if (
+          formatted &&
+          !lower.includes('back') &&
+          !lower.includes('hero') &&
+          !lowerEquip.has(lower) &&
+          !isEquipmentOrWeapon(formatted)
+        ) {
+          cards.push(formatted);
+        }
+      }
+    }
+    if (cards.length > 0 && cards.length <= 10) {
+      return cards;
+    }
+  }
 
   // Select candidate hand containers, ensuring we avoid equipment 'Hands' slots
   const candidates = Array.from(
@@ -1190,12 +1426,37 @@ export function parseTurnCount(doc: Document, logs: string[]): number {
 export function parseWentFirst(logs: string[], playerName?: string, opponentName?: string): boolean | undefined {
   if (!logs || logs.length === 0) return undefined;
 
+  const pLower = playerName?.toLowerCase().trim();
+  const oLower = opponentName?.toLowerCase().trim();
+
+  // 1. If Turn 0 divider exists, check who took Turn 0
   for (const line of logs) {
-    if (/Turn\s*1/i.test(line)) {
-      if (playerName && line.toLowerCase().includes(playerName.toLowerCase())) {
+    if (/--- Turn 0 - (.+?) ---/i.test(line)) {
+      const match = line.match(/--- Turn 0 - (.+?) ---/i);
+      const actor = match ? match[1].toLowerCase().trim() : '';
+      if (pLower && actor.includes(pLower)) return true;
+      if (pLower && !actor.includes(pLower)) return false;
+      if (oLower && actor.includes(oLower)) return false;
+    }
+  }
+
+  // 2. Check actions that occurred before any Turn 1 divider
+  for (const line of logs) {
+    if (/Turn\s*1\b/i.test(line)) break;
+    const lower = line.toLowerCase();
+    if (/(?:played|activated|banished|pitched|lost \d+ life)/i.test(lower)) {
+      if (pLower && lower.includes(pLower)) return true;
+      if (oLower && lower.includes(oLower)) return false;
+    }
+  }
+
+  // 3. Fallback: check who is named on Turn 1 divider
+  for (const line of logs) {
+    if (/Turn\s*1\b/i.test(line)) {
+      if (pLower && line.toLowerCase().includes(pLower)) {
         return true;
       }
-      if (opponentName && line.toLowerCase().includes(opponentName.toLowerCase())) {
+      if (oLower && line.toLowerCase().includes(oLower)) {
         return false;
       }
     }
@@ -1429,12 +1690,16 @@ export function extractMatchRecordFromDom(
     initialOpponentEquipment?: string[];
     cachedPlayerFatigue?: number;
     cachedOpponentFatigue?: number;
+    cachedPlayerHero?: string;
+    cachedOpponentHero?: string;
     turnHands?: Map<number, string[]> | Record<number, string[]>;
   }
 ): Partial<MatchRecord> {
   const { player: playerName, opponent: oppName, playerUsername, opponentUsername } = parsePlayerNames(doc);
-  const { playerHero, opponentHero } = parseHeroNames(doc);
   const parsedLogs = parseCombatLogs(doc);
+  const { playerHero, opponentHero } = parseHeroNames(doc, parsedLogs);
+  const effectivePlayerHero = playerHero || options?.cachedPlayerHero;
+  const effectiveOpponentHero = opponentHero || options?.cachedOpponentHero;
 
   let rawLogs = parsedLogs;
   if (options?.turnHands) {
@@ -1510,7 +1775,7 @@ export function extractMatchRecordFromDom(
 
   const player: PlayerStats = {
     name: playerName || 'Jogador',
-    hero: playerHero || '-',
+    hero: effectivePlayerHero || '-',
     username: playerUsername,
     avgTurnValue: playerAvgTurnValue,
     fatigue: playerFatigue,
@@ -1520,7 +1785,7 @@ export function extractMatchRecordFromDom(
 
   const opponent: PlayerStats = {
     name: oppName || 'Oponente',
-    hero: opponentHero || '-',
+    hero: effectiveOpponentHero || '-',
     username: opponentUsername,
     avgTurnValue: opponentAvgTurnValue,
     fatigue: opponentFatigue,
