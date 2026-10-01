@@ -529,19 +529,61 @@ export function isOpponentTabActive(
 }
 
 /**
+ * Locates all "Exclude Last Turn" checkboxes in the Talishar end-game stats modal.
+ */
+export function findAllExcludeLastTurnCheckboxes(doc: Document = document): HTMLInputElement[] {
+  const byClass = Array.from(
+    doc.querySelectorAll<HTMLInputElement>(
+      'input[class*="excludeLastTurn"], input[class*="ExcludeLastTurn"], input[type="checkbox"][class*="exclude"]'
+    )
+  );
+  if (byClass.length > 0) return byClass;
+  return Array.from(doc.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).filter((cb) => {
+    const parentText = cb.closest('label, div, p, span, tr')?.textContent?.toLowerCase() || '';
+    return parentText.includes('exclude last turn') || parentText.includes('last turn');
+  });
+}
+
+/**
  * Locates the "Exclude Last Turn" checkbox in the Talishar end-game stats modal.
  */
 export function findExcludeLastTurnCheckbox(doc: Document = document): HTMLInputElement | null {
-  return (
-    doc.querySelector<HTMLInputElement>(
-      'input[class*="excludeLastTurnCheckbox"], input[class*="excludeLastTurn"], input[type="checkbox"][class*="exclude"]'
-    ) ||
-    Array.from(doc.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find((cb) => {
-      const parentText = cb.closest('label, div, p, span')?.textContent?.toLowerCase() || '';
-      return parentText.includes('exclude last turn') || parentText.includes('last turn');
-    }) ||
-    null
-  );
+  const all = findAllExcludeLastTurnCheckboxes(doc);
+  return all.length > 0 ? all[0] : null;
+}
+
+/**
+ * Ensures all "Exclude Last Turn" checkboxes in the document are checked.
+ * Dispatches click, change, and input events to reliably notify React.
+ */
+export async function ensureExcludeLastTurnChecked(
+  doc: Document = document,
+  waitMs: number = 350
+): Promise<boolean> {
+  const checkboxes = findAllExcludeLastTurnCheckboxes(doc);
+  let clickedAny = false;
+
+  for (const cb of checkboxes) {
+    if (!cb.checked) {
+      try {
+        if (typeof cb.click === 'function') {
+          cb.click();
+        } else {
+          cb.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        }
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+        cb.dispatchEvent(new Event('input', { bubbles: true }));
+        clickedAny = true;
+      } catch (e) {
+        console.warn('[Talishar Log Exporter] Falha ao marcar excludeLastTurn:', e);
+      }
+    }
+  }
+
+  if (clickedAny) {
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+  return clickedAny;
 }
 
 /**
@@ -568,7 +610,7 @@ export function findSwitchPlayerStatsButton(doc: Document = document): HTMLEleme
 
 /**
  * Automatically captures end-game stats by:
- * 1. Ensuring "Exclude Last Turn" checkbox is clicked/checked for better defined stats.
+ * 1. Ensuring "Exclude Last Turn" checkbox is clicked/checked FIRST before reading any stats.
  * 2. Reading current stats.
  * 3. Clicking "Switch Player Stats" to read opponent stats.
  * 4. Clicking "Switch Player Stats" again to return the user to their own view.
@@ -584,24 +626,12 @@ export async function autoCaptureEndGameStats(
   playerAvgTurnValue?: number;
   opponentAvgTurnValue?: number;
 }> {
-  const waitTime = options?.waitMs ?? 220;
+  const waitTime = options?.waitMs ?? 350;
 
-  // 1. Ensure "Exclude Last Turn" checkbox is clicked/checked if present
-  const excludeCb = findExcludeLastTurnCheckbox(doc);
-  if (excludeCb && !excludeCb.checked) {
-    try {
-      if (typeof excludeCb.click === 'function') {
-        excludeCb.click();
-      } else {
-        excludeCb.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      }
-      await new Promise((r) => setTimeout(r, waitTime));
-    } catch (e) {
-      console.warn('[Talishar Log Exporter] Falha ao marcar excludeLastTurn:', e);
-    }
-  }
+  // 1. Ensure "Exclude Last Turn" checkbox is clicked/checked FIRST before reading any stats
+  await ensureExcludeLastTurnChecked(doc, waitTime);
 
-  // 2. Read initial stats from the current view
+  // 2. Read initial stats from the current view (with checkbox checked)
   const isOppActive = isOpponentTabActive(doc, options?.opponentNameOrHero, options?.playerNameOrHero);
   const initialStats = parseAverageTurnValues(doc, options?.opponentNameOrHero, options?.playerNameOrHero);
   const initialVal = initialStats.playerAvgTurnValue ?? initialStats.opponentAvgTurnValue;
@@ -623,14 +653,10 @@ export async function autoCaptureEndGameStats(
     try {
       // Switch view to opposite player
       triggerClick(switchBtn);
-      await new Promise((r) => setTimeout(r, waitTime + 60));
+      await new Promise((r) => setTimeout(r, waitTime + 80));
 
       // Also ensure excludeLastTurn is checked on the switched view if separate
-      const switchedExcludeCb = findExcludeLastTurnCheckbox(doc);
-      if (switchedExcludeCb && !switchedExcludeCb.checked) {
-        triggerClick(switchedExcludeCb);
-        await new Promise((r) => setTimeout(r, waitTime));
-      }
+      await ensureExcludeLastTurnChecked(doc, waitTime);
 
       // Read stats from the switched view
       const switchedStats = parseAverageTurnValues(doc, options?.opponentNameOrHero, options?.playerNameOrHero);
@@ -662,20 +688,49 @@ export async function autoCaptureEndGameStats(
  * Extracts cards currently in the player's hand, formatted with pitch suffixes (r), (y), (b).
  * Avoids opponent zones and equipment hands slots.
  */
-export function extractPlayerHand(doc: Document = document): string[] {
+export function extractPlayerHand(
+  doc: Document = document,
+  knownEquipment: string[] = []
+): string[] {
+  // Normalize known equipment to lower case for exclusion
+  const lowerEquip = new Set(knownEquipment.map((e) => e.trim().toLowerCase()).filter(Boolean));
+
   // Select candidate hand containers, ensuring we avoid equipment 'Hands' slots
   const candidates = Array.from(
     doc.querySelectorAll<HTMLElement>(
-      '[class*="handZone"], [class*="HandZone"], [class*="playerHand"], [class*="PlayerHand"], [class*="myHand"], [class*="pOneHandZone"], [class*="pOneHand"], [class*="handContainer"], [class*="hand_"], [class*="Hand_"]'
+      '[class*="handZone"], [class*="HandZone"], [class*="playerHand"], [class*="PlayerHand"], [class*="myHand"], [class*="pOneHandZone"], [class*="pOneHand"], [class*="handContainer"], [class*="hand_"], [class*="Hand_"], [class*="hand" i], [id*="hand" i]'
     )
   ).filter((el) => {
-    const c = el.className?.toString().toLowerCase() || '';
-    // Exclude equipment zones e.g. pOneHands, pTwoHands, handsZone, handslot
-    if (c.includes('ponehands') || c.includes('ptwohands') || c.includes('handszone') || c.includes('handslot')) {
+    const c = (el.className?.toString() || '').toLowerCase();
+    const id = (el.id || '').toLowerCase();
+
+    // Exclude equipment zones e.g. pOneHands, pTwoHands, handsZone, handslot, equip
+    if (
+      c.includes('ponehands') ||
+      c.includes('ptwohands') ||
+      c.includes('handszone') ||
+      c.includes('handslot') ||
+      c.includes('equip') ||
+      id.includes('equip')
+    ) {
       return false;
     }
-    // Also avoid opponent containers
-    if (c.includes('ptwo') || c.includes('opponent')) {
+    // Avoid opponent containers and sidebar / drawer / sideboard containers
+    if (
+      c.includes('ptwo') ||
+      c.includes('opponent') ||
+      c.includes('sideboard') ||
+      c.includes('drawer') ||
+      c.includes('inventory') ||
+      c.includes('decklist') ||
+      c.includes('deckbuilder') ||
+      id.includes('sideboard') ||
+      id.includes('drawer')
+    ) {
+      return false;
+    }
+    // Skip entire page containers
+    if (el === doc.body || el.tagName === 'HTML' || el.children.length > 30) {
       return false;
     }
     return true;
@@ -685,6 +740,8 @@ export function extractPlayerHand(doc: Document = document): string[] {
 
   for (const container of candidates) {
     const imgs = Array.from(container.querySelectorAll<HTMLImageElement>('img'));
+    const candidateCards: string[] = [];
+
     for (const img of imgs) {
       const alt = img.getAttribute('alt')?.trim();
       const title = img.getAttribute('title')?.trim();
@@ -700,26 +757,19 @@ export function extractPlayerHand(doc: Document = document): string[] {
           !lower.includes('avatar') &&
           !lower.includes('token') &&
           !lower.includes('playmat') &&
-          !lower.includes('back')
+          !lower.includes('difficulties') &&
+          !lower.includes('back') &&
+          !lowerEquip.has(lower)
         ) {
-          handCards.push(formatted);
+          candidateCards.push(formatted);
         }
       }
     }
-    if (handCards.length > 0) break;
-  }
 
-  // Fallback: If no candidate container found, check bottom region of page for cards
-  if (handCards.length === 0) {
-    const allCards = Array.from(doc.querySelectorAll<HTMLImageElement>('img[src*="/cards/"], img[src*="cardsquares"]'));
-    for (const img of allCards) {
-      const parent = img.closest('[class*="Head"], [class*="Chest"], [class*="Hands"], [class*="Legs"], [class*="Weapon"], [class*="Deck"], [class*="Graveyard"], [class*="Banish"], [class*="Pitch"], [class*="Combat"]');
-      if (parent) continue; // Belongs to a board zone
-      const rawName = img.alt || img.title || img.src;
-      if (rawName) {
-        const formatted = formatTalisharCardName(rawName);
-        if (formatted) handCards.push(formatted);
-      }
+    // In FAB, an active hand is between 1 and 10 cards. If candidate has cards in this range, accept it
+    if (candidateCards.length > 0 && candidateCards.length <= 10) {
+      handCards.push(...candidateCards);
+      break;
     }
   }
 
@@ -764,6 +814,31 @@ export function findOpponentTabElement(doc: Document, opponentNameOrHero?: strin
 }
 
 /**
+ * Checks whether a row text represents "Average Value per Turn".
+ * Strictly rejects "Avg Resources per Turn", "Damage per Turn", etc.
+ */
+export function isAvgValueTurnRow(text: string): boolean {
+  if (!text) return false;
+  // Strictly exclude non-turn-value metrics
+  if (
+    /resource|recurso|damage|dano|threatened|card|pitch|action|defen[sc]|hand\s*size|drawn/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  const hasAvg = /avg|average|m[eé]di[oa]/i.test(text);
+  const hasValue = /value|valor/i.test(text);
+  const hasTurn = /turn|turno/i.test(text);
+
+  if (hasValue && hasTurn) {
+    if (hasAvg) return true;
+    if (/(?:value|valor)\s*(?:\/|per|por)\s*(?:turn|turno)/i.test(text)) return true;
+  }
+  return false;
+}
+
+/**
  * Extracts Average Turn Value metrics displayed by Talishar for both players.
  */
 export function parseAverageTurnValues(
@@ -789,11 +864,7 @@ export function parseAverageTurnValues(
     const parentRow = valEl.closest('[class*="infoRow"], [class*="InfoRow"], tr, div, li');
     const rowText = parentRow ? parentRow.textContent || '' : '';
 
-    if (
-      !/damage|dano|threatened/i.test(rowText) &&
-      (/(?:Avg|Average|Valor\s*M[eé]dio).*?(?:Turn|Turno|Value|Valor)/i.test(rowText) ||
-        /Value\s*\/\s*Turn/i.test(rowText))
-    ) {
+    if (isAvgValueTurnRow(rowText)) {
       const numMatch = text.match(/(\d+(?:[.,]\d+)?)/);
       if (numMatch) {
         const val = parseFloat(numMatch[1].replace(',', '.'));
@@ -844,11 +915,7 @@ export function parseAverageTurnValues(
       }
       const text = row.textContent || '';
 
-      if (
-        !/damage|dano|threatened/i.test(text) &&
-        (/(?:Avg|Average|Valor\s*M[eé]dio).*?(?:Turn|Turno|Value|Valor)/i.test(text) ||
-          /Value\s*\/\s*Turn/i.test(text))
-      ) {
+      if (isAvgValueTurnRow(text)) {
         const isExplicitPlayer =
           /Player Avg|My Avg|Meu Valor/i.test(text) ||
           row.closest('.playerStats, [class*="playerBoard"]') !== null;

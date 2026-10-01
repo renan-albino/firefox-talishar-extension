@@ -259,7 +259,8 @@ export default defineContentScript({
         // Track player hand upon turn transition
         const currentTurnNo = parseTurnCount(document, combatLogs);
         if (currentTurnNo > 0 && currentTurnNo !== lastHandLoggedTurn) {
-          const hand = extractPlayerHand(document);
+          const knownEquip = [...initialPlayerEquipment, ...cachedPlayerEquipment];
+          const hand = extractPlayerHand(document, knownEquip);
           if (hand.length > 0) {
             turnHands.set(currentTurnNo, hand);
             lastHandLoggedTurn = currentTurnNo;
@@ -291,18 +292,8 @@ export default defineContentScript({
         matchEndedHandled = true;
 
         (async () => {
-          const snapshot = extractMatchRecordFromDom(document, {
-            cachedPlayerEquipment,
-            cachedOpponentEquipment,
-            initialPlayerEquipment,
-            initialOpponentEquipment,
-            cachedPlayerFatigue,
-            cachedOpponentFatigue,
-            turnHands,
-          });
-
           // Automated capture with retries (polling every 350ms up to 12 times = ~4.5s)
-          // to ensure Talishar's EndGameStats modal has mounted and finished rendering
+          // to ensure Talishar's EndGameStats modal has mounted, clicked excludeLastTurn, and finished rendering
           let autoStats: { playerAvgTurnValue?: number; opponentAvgTurnValue?: number } = {};
           for (let attempt = 0; attempt < 12; attempt++) {
             await new Promise((r) => setTimeout(r, attempt === 0 ? 300 : 400));
@@ -314,8 +305,8 @@ export default defineContentScript({
             if (hasStatsElements) {
               try {
                 autoStats = await autoCaptureEndGameStats(document, {
-                  opponentNameOrHero: snapshot.opponent?.name || snapshot.opponent?.hero,
-                  playerNameOrHero: snapshot.player?.name || snapshot.player?.hero,
+                  opponentNameOrHero: cachedOpponentUsername,
+                  playerNameOrHero: cachedPlayerUsername,
                 });
                 if (autoStats.playerAvgTurnValue !== undefined || autoStats.opponentAvgTurnValue !== undefined) {
                   console.log('[Talishar Log Exporter] ✅ Estatísticas capturadas na tentativa', attempt + 1, autoStats);
@@ -326,6 +317,16 @@ export default defineContentScript({
               }
             }
           }
+
+          const snapshot = extractMatchRecordFromDom(document, {
+            cachedPlayerEquipment,
+            cachedOpponentEquipment,
+            initialPlayerEquipment,
+            initialOpponentEquipment,
+            cachedPlayerFatigue,
+            cachedOpponentFatigue,
+            turnHands,
+          });
 
           const finalPlayerAvg = autoStats.playerAvgTurnValue ?? snapshot.player?.avgTurnValue;
           const finalOpponentAvg = autoStats.opponentAvgTurnValue ?? snapshot.opponent?.avgTurnValue;

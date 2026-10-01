@@ -502,5 +502,54 @@ describe('talisharDom parser', () => {
       'Sink Below (b)',
     ]);
   });
+
+  it('should ignore Avg Resources per Turn and only extract Avg Value per Turn', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="_infoRow_1fs3u_100">
+        <span class="_infoLabel_1fs3u_120">Avg Resources per Turn</span>
+        <span class="_infoValue_1fs3u_152">0.33</span>
+      </div>
+      <div class="_infoRow_1fs3u_100">
+        <span class="_infoLabel_1fs3u_120">Avg Value per Turn</span>
+        <span class="_infoValue_1fs3u_152">14.8</span>
+      </div>
+    `;
+
+    const stats = parseAverageTurnValues(doc);
+    expect(stats.playerAvgTurnValue).toBe(14.8);
+    expect(stats.playerAvgTurnValue).not.toBe(0.33);
+  });
+
+  it('should find excludeLastTurn checkbox with dynamic hash classes like _excludeLastTurnCheckbox_10oml_951', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <input type="checkbox" class="_excludeLastTurnCheckbox_10oml_951" />
+    `;
+
+    const cb = findExcludeLastTurnCheckbox(doc);
+    expect(cb).not.toBeNull();
+    expect(cb?.className).toBe('_excludeLastTurnCheckbox_10oml_951');
+  });
+
+  it('should filter out known equipment if present in extractPlayerHand', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="_handContainer_abc">
+        <img alt="Raydn Duskbane" />
+        <img alt="Circlet Of Eternal End" />
+        <img alt="Snatch (1)" />
+        <img alt="Fyendals Spring Tunic" />
+        <img alt="Sink Below (3)" />
+      </div>
+    `;
+
+    const hand = extractPlayerHand(doc, [
+      'Raydn Duskbane',
+      'Circlet Of Eternal End',
+      'Fyendals Spring Tunic',
+    ]);
+    expect(hand).toEqual(['Snatch (r)', 'Sink Below (b)']);
+  });
 });
 
