@@ -15,6 +15,8 @@ import {
 } from '../src/parsers/talisharDom';
 import {
   trackLobbyDeckState,
+  trackLobbyEquipment,
+  formatTalisharCardName,
   isPreGameLobby,
   trackInGameInventory,
   getSavedSideboard,
@@ -23,7 +25,7 @@ import {
 import { createFloatingButton } from '../src/ui/floatingButton';
 import { createExportModal } from '../src/ui/exportModal';
 import { getSettings, saveMatchToHistory, getMatchHistory } from '../src/utils/storage';
-import type { MatchRecord, DeckAdjustment } from '../src/types/match';
+import type { MatchRecord, DeckAdjustment, ActiveChainLinkStat } from '../src/types/match';
 import type { SheetsResponse } from '../src/services/sheetsClient';
 
 export default defineContentScript({
@@ -42,6 +44,9 @@ export default defineContentScript({
     let initialPlayerEquipment: string[] = [];
     let initialOpponentEquipment: string[] = [];
     const turnHands = new Map<number, string[]>();
+    const turnStartingHands = new Map<number, string[]>();
+    const turnDrawnHands = new Map<number, string[]>();
+    const activeChainLinkStats: ActiveChainLinkStat[] = [];
     let lastHandLoggedTurn = 0;
     let cachedPlayerFatigue: number | undefined = undefined;
     let cachedOpponentFatigue: number | undefined = undefined;
@@ -123,7 +128,20 @@ export default defineContentScript({
       
       btn = createFloatingButton(() => {
         // Re-extract latest stats (e.g. if average turn value or outcome refreshed)
-        const latestSnapshot = extractMatchRecordFromDom(document);
+        const latestSnapshot = extractMatchRecordFromDom(document, {
+          cachedPlayerEquipment,
+          cachedOpponentEquipment,
+          initialPlayerEquipment,
+          initialOpponentEquipment,
+          cachedPlayerFatigue,
+          cachedOpponentFatigue,
+          cachedPlayerHero,
+          cachedOpponentHero,
+          turnHands,
+          turnStartingHands,
+          turnDrawnHands,
+          activeChainLinks: activeChainLinkStats,
+        });
         const savedAdjustment = currentDeckAdjustment || getSavedSideboard();
         const merged: MatchRecord = {
           ...matchData,
@@ -217,6 +235,9 @@ export default defineContentScript({
           initialPlayerEquipment = [];
           initialOpponentEquipment = [];
           turnHands.clear();
+          turnStartingHands.clear();
+          turnDrawnHands.clear();
+          activeChainLinkStats.length = 0;
           lastHandLoggedTurn = 0;
           const oldBtn = document.getElementById('talishar-log-export-btn');
           if (oldBtn) oldBtn.remove();
@@ -225,9 +246,16 @@ export default defineContentScript({
         }
 
         const adjustment = trackLobbyDeckState(document);
-        if ((adjustment.mainDeckCount ?? 0) > 0 || adjustment.cardsLeftOut.length > 0) {
+        if (
+          (adjustment.mainDeckCount ?? 0) > 0 ||
+          adjustment.cardsLeftOut.length > 0 ||
+          (adjustment.equippedItems && adjustment.equippedItems.length > 0)
+        ) {
           currentDeckAdjustment = adjustment;
           saveSideboardToStorage(adjustment);
+        }
+        if (adjustment.equippedItems && adjustment.equippedItems.length > 0) {
+          initialPlayerEquipment = [...adjustment.equippedItems];
         }
       }
 
@@ -236,19 +264,19 @@ export default defineContentScript({
         const liveEquip = parseEquipment(document, cachedPlayerEquipment, cachedOpponentEquipment);
         if (liveEquip.playerEquipment.length > 0) {
           cachedPlayerEquipment = liveEquip.playerEquipment;
-          liveEquip.playerEquipment.forEach((item) => {
-            if (!initialPlayerEquipment.includes(item)) {
-              initialPlayerEquipment.push(item);
+          if (initialPlayerEquipment.length === 0) {
+            if (currentDeckAdjustment?.equippedItems && currentDeckAdjustment.equippedItems.length > 0) {
+              initialPlayerEquipment = [...currentDeckAdjustment.equippedItems];
+            } else {
+              initialPlayerEquipment = [...liveEquip.playerEquipment];
             }
-          });
+          }
         }
         if (liveEquip.opponentEquipment.length > 0) {
           cachedOpponentEquipment = liveEquip.opponentEquipment;
-          liveEquip.opponentEquipment.forEach((item) => {
-            if (!initialOpponentEquipment.includes(item)) {
-              initialOpponentEquipment.push(item);
-            }
-          });
+          if (initialOpponentEquipment.length === 0) {
+            initialOpponentEquipment = [...liveEquip.opponentEquipment];
+          }
         }
 
         const liveFatigue = parseFatigue(document, cachedPlayerFatigue, cachedOpponentFatigue);
@@ -263,7 +291,9 @@ export default defineContentScript({
         if (liveHeroes.playerHero && liveHeroes.playerHero !== '-') cachedPlayerHero = liveHeroes.playerHero;
         if (liveHeroes.opponentHero && liveHeroes.opponentHero !== '-') cachedOpponentHero = liveHeroes.opponentHero;
 
-        // Track player hand throughout the game, preserving the fullest hand observed per turn (drawn hand)
+        // Track player hand throughout the game:
+        // - turnStartingHands: cards in hand as turn starts (Turn 0 opening hand, Turn 1 hand, etc.)
+        // - turnDrawnHands: cards drawn at the end of turn
         const currentTurnNo = parseTurnCount(document, combatLogs);
         if (currentTurnNo >= 0) {
           const knownEquip = [...initialPlayerEquipment, ...cachedPlayerEquipment];
@@ -274,24 +304,59 @@ export default defineContentScript({
               ? lastDivider.toLowerCase().includes(cachedPlayerUsername.toLowerCase())
               : true;
 
+            // Turn 0 opening hand
+            if (currentTurnNo === 0) {
+              if (!turnStartingHands.has(0) && hand.length >= 3) {
+                turnStartingHands.set(0, hand);
+              }
+            } else {
+              // At start of Turn N, capture the cards held in hand
+              if (!turnStartingHands.has(currentTurnNo) && hand.length >= 1) {
+                turnStartingHands.set(currentTurnNo, hand);
+              }
+            }
+
+            // Capture drawn hand at end of player's turn (or during opponent's turn)
+            if (currentTurnNo >= 1) {
+              if (!isPlayerTurnActive && hand.length >= 3) {
+                turnDrawnHands.set(currentTurnNo, hand);
+                if (!turnStartingHands.has(currentTurnNo + 1)) {
+                  turnStartingHands.set(currentTurnNo + 1, hand);
+                }
+              }
+            }
+
             const existing = turnHands.get(currentTurnNo) || [];
             if (hand.length >= existing.length) {
               turnHands.set(currentTurnNo, hand);
             }
+          }
+        }
 
-            // Always capture initial opening hand as Turn 1
-            if (!turnHands.has(1) && hand.length >= 3) {
-              turnHands.set(1, hand);
-            }
-
-            // If player draws a full hand (>= 3 cards) during opponent's turn or end of turn,
-            // preserve the hand for the upcoming turn (currentTurnNo + 1)
-            if (!isPlayerTurnActive && hand.length >= 3) {
-              const nextTurnNo = currentTurnNo + 1;
-              const nextExisting = turnHands.get(nextTurnNo) || [];
-              if (hand.length >= nextExisting.length) {
-                turnHands.set(nextTurnNo, hand);
-              }
+        // 2b. Track active combat chain attack power & defense live from DOM
+        const attEl = document.querySelector('[data-testid="attack-value"], [class*="attDiv"]');
+        const defEl = document.querySelector('[data-testid="defense-value"], [class*="defDiv"]');
+        const currentAttContainer = document.querySelector('[class*="currentAttack"], [class*="CurrentAttack"]');
+        if (attEl && currentAttContainer) {
+          const img = currentAttContainer.querySelector('img[alt], img[src*="cardsquares"], img[src*="cards"]');
+          const cardCandidate = img?.getAttribute('alt') || img?.getAttribute('src') || '';
+          const cardName = formatTalisharCardName(cardCandidate);
+          const power = parseInt(attEl.textContent?.trim() || '0', 10);
+          const defense = defEl ? parseInt(defEl.textContent?.trim() || '0', 10) : undefined;
+          if (cardName && !isNaN(power)) {
+            const existingStat = activeChainLinkStats.find(
+              (s) => s.card.toLowerCase() === cardName.toLowerCase() && s.turn === currentTurnNo
+            );
+            if (existingStat) {
+              if (power > existingStat.power) existingStat.power = power;
+              if (defense !== undefined && defense > (existingStat.defense ?? 0)) existingStat.defense = defense;
+            } else {
+              activeChainLinkStats.push({
+                card: cardName,
+                power,
+                defense,
+                turn: currentTurnNo,
+              });
             }
           }
         }
@@ -357,6 +422,9 @@ export default defineContentScript({
             cachedPlayerHero,
             cachedOpponentHero,
             turnHands,
+            turnStartingHands,
+            turnDrawnHands,
+            activeChainLinks: activeChainLinkStats,
           });
 
           const finalPlayerAvg = autoStats.playerAvgTurnValue ?? snapshot.player?.avgTurnValue;
@@ -422,6 +490,7 @@ export default defineContentScript({
             format: snapshot.format || 'CC',
             wentFirst: snapshot.wentFirst,
             platform: 'Talishar',
+            activeChainLinks: activeChainLinkStats.length > 0 ? activeChainLinkStats : snapshot.activeChainLinks,
           };
 
           // AUTO-SAVE to local DB instantly so no data is ever lost

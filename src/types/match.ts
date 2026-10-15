@@ -23,9 +23,18 @@ export interface DeckAdjustment {
   cardsLeftOut: string[];
   cardsAdded: string[];
   mainDeckCount?: number;
+  equippedItems?: string[];
 }
 
 export type MatchResult = 'win' | 'loss' | 'draw' | 'unknown';
+
+export interface ActiveChainLinkStat {
+  card: string;
+  power: number;
+  defense?: number;
+  turn?: number;
+  linkIndex?: number;
+}
 
 export interface MatchRecord {
   id: string;
@@ -42,6 +51,7 @@ export interface MatchRecord {
   format?: string;
   wentFirst?: boolean;
   platform?: string;
+  activeChainLinks?: ActiveChainLinkStat[];
 }
 
 export interface ExtensionSettings {

@@ -38,3 +38,15 @@ Transcrição textual integral de combate na qual os nomes de tela dos usuários
 
 ### Turn Value Calibration & Exclude Last Turn (Calibração de Valor por Turno)
 Ajuste estatístico disponibilizado pelo Talishar para desconsiderar o turno incompleto da vitória ou derrota, gerando médias de valor por turno mais representativas do desempenho real dos baralhos.
+
+### Active Chain Links & Real-Time Power (Links Ativos e Poder em Tempo Real)
+Captura em tempo real do poder ofensivo (`[data-testid="attack-value"]`) e defensivo (`[data-testid="defense-value"]`) calculado diretamente pelo motor de regras do Talishar no componente `CurrentAttack`, enriquecendo o cabeçalho do Chain Link com precisão mesmo em interações complexas de ataque (ex: *Kiss of Death*).
+
+### Turn Hand Progression (Progressão de Mão por Turno)
+Rastreamento cronológico preciso da mão do jogador:
+- `[Mão Inicial - Turno 0]`: Mão de abertura capturada no Turno 0.
+- `[Cartas na Mão - Turno N]`: Cartas em mãos disponíveis no início do Turno N para planejamento e ações.
+- `[Mão Comprada - Turno N]`: Cartas compradas no encerramento do Turno N ao recompor a mão.
+
+### Initial Equipment Locking (Travamento de Equipamento Inicial)
+Garantia de que apenas os equipamentos confirmados na tela de sideboard/lobby pertençam ao registro de `Meu Equipamento`, ignorando armas transformadas ou criadas dinamicamente no meio da partida (ex: *Graphene Chelicera*) e limpando sufixos de slot (`_r`/`_l`).

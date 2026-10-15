@@ -1,4 +1,4 @@
-import type { MatchRecord, MatchResult, PlayerStats } from '../types/match';
+import type { MatchRecord, MatchResult, PlayerStats, ActiveChainLinkStat } from '../types/match';
 import { formatTalisharCardName } from './sideboardTracker';
 import { KNOWN_FAB_PITCHES, NON_ATTACK_CARDS } from '../formatters/csvFormatter';
 
@@ -383,7 +383,7 @@ export function parseCombatLogs(doc: Document): string[] {
   // Select message and turn divider elements
   const elements = Array.from(
     chatBox.querySelectorAll<HTMLElement>(
-      '[class*="chatMessage"], [class*="chatMobileMessage"], [class*="turnDivider"], [class*="TurnDivider"], [class*="combatGroupLabel"]'
+      '[class*="chatMessage"], [class*="chatMobileMessage"], [class*="turnDivider"], [class*="TurnDivider"]'
     )
   ).filter((el) => {
     const className = el.className || '';
@@ -428,6 +428,7 @@ export function parseCombatLogs(doc: Document): string[] {
         const linkMatch = text.match(/chain\s*link\s*(\d+)/i);
         if (linkMatch) {
           currentChainLink = parseInt(linkMatch[1], 10);
+          text = `[Chain Link ${currentChainLink}]`;
         }
       } else {
         text = annotateMessageCardColors(el);
@@ -439,22 +440,9 @@ export function parseCombatLogs(doc: Document): string[] {
             /attacks?\s+with/i.test(text) ||
             /attacked?\s+with/i.test(text);
 
-          const playedMatch = text.match(
-            /(?:played|activated|attacks?\s+with|attacked?\s+with)\s+(.+?)(?:\s+from\s+arsenal|\s+for\s+\d+|$)/i
-          );
-          if (playedMatch) {
-            const cardCand = playedMatch[1].replace(/\s*\([ryb]\)$/i, '').trim().toLowerCase();
-            const isNonAttack =
-              cardCand.includes('ability') ||
-              cardCand.includes('pass') ||
-              NON_ATTACK_CARDS.has(cardCand) ||
-              cardCand.includes('gem') ||
-              cardCand.includes('counter');
-
-            if ((isExplicitAttack || !isNonAttack) && !/chain\s*link/i.test(text)) {
-              currentChainLink++;
-              text = `[Chain Link ${currentChainLink}] ${text}`;
-            }
+          if (isExplicitAttack && !/chain\s*link/i.test(text)) {
+            currentChainLink++;
+            text = `[Chain Link ${currentChainLink}] ${text}`;
           }
         }
       }
@@ -481,22 +469,9 @@ export function parseCombatLogs(doc: Document): string[] {
             /attacks?\s+with/i.test(text) ||
             /attacked?\s+with/i.test(text);
 
-          const playedMatch = text.match(
-            /(?:played|activated|attacks?\s+with|attacked?\s+with)\s+(.+?)(?:\s+from\s+arsenal|\s+for\s+\d+|$)/i
-          );
-          if (playedMatch) {
-            const cardCand = playedMatch[1].replace(/\s*\([ryb]\)$/i, '').trim().toLowerCase();
-            const isNonAttack =
-              cardCand.includes('ability') ||
-              cardCand.includes('pass') ||
-              NON_ATTACK_CARDS.has(cardCand) ||
-              cardCand.includes('gem') ||
-              cardCand.includes('counter');
-
-            if ((isExplicitAttack || !isNonAttack) && !/chain\s*link/i.test(text)) {
-              currentChainLink++;
-              text = `[Chain Link ${currentChainLink}] ${text}`;
-            }
+          if (isExplicitAttack && !/chain\s*link/i.test(text)) {
+            currentChainLink++;
+            text = `[Chain Link ${currentChainLink}] ${text}`;
           }
         }
         if (text.length > 0) {
@@ -920,7 +895,20 @@ export function isEquipmentOrWeapon(name: string): boolean {
     lower.includes('heartened cross') ||
     lower.includes('nullrune') ||
     lower.includes('barkbone') ||
-    lower.includes('arcane lantern')
+    lower.includes('arcane lantern') ||
+    lower.includes('klaive') ||
+    lower.includes('chelicera') ||
+    lower.includes('flick knives') ||
+    lower.includes('steps') ||
+    lower.includes('creepers') ||
+    lower.includes('purgatory') ||
+    lower.includes('seven sin') ||
+    lower.includes('nebula') ||
+    lower.includes('arceon') ||
+    lower.includes('blacktek') ||
+    lower.includes('redback') ||
+    lower.includes('alluvion') ||
+    lower.includes('trench of')
   );
 }
 
@@ -1691,8 +1679,10 @@ export function extractMatchRecordFromDom(
     cachedPlayerFatigue?: number;
     cachedOpponentFatigue?: number;
     cachedPlayerHero?: string;
-    cachedOpponentHero?: string;
     turnHands?: Map<number, string[]> | Record<number, string[]>;
+    turnStartingHands?: Map<number, string[]> | Record<number, string[]>;
+    turnDrawnHands?: Map<number, string[]> | Record<number, string[]>;
+    activeChainLinks?: ActiveChainLinkStat[];
   }
 ): Partial<MatchRecord> {
   const { player: playerName, opponent: oppName, playerUsername, opponentUsername } = parsePlayerNames(doc);
@@ -1702,32 +1692,76 @@ export function extractMatchRecordFromDom(
   const effectiveOpponentHero = opponentHero || options?.cachedOpponentHero;
 
   let rawLogs = parsedLogs;
-  if (options?.turnHands) {
-    const hands = options.turnHands;
+  const startHands = options?.turnStartingHands;
+  const drawnHands = options?.turnDrawnHands;
+  const legacyHands = options?.turnHands;
+
+  if (startHands || drawnHands || legacyHands) {
+    const getHandCards = (mapOrObj: any, turn: number): string[] => {
+      if (!mapOrObj) return [];
+      const c = mapOrObj instanceof Map ? mapOrObj.get(turn) : mapOrObj[turn];
+      if (!c || !Array.isArray(c)) return [];
+      return c.filter(
+        (card: string) =>
+          !isEquipmentOrWeapon(card) &&
+          !card.toLowerCase().includes('back') &&
+          !card.toLowerCase().includes('hero')
+      );
+    };
+
     const enriched: string[] = [];
-    const insertedTurns = new Set<number>();
-    for (const line of parsedLogs) {
-      enriched.push(line);
+    let currentTurnNum: number | null = null;
+    const insertedStartTurns = new Set<number>();
+    const insertedDrawnTurns = new Set<number>();
+
+    const flushDrawnHand = (tNo: number | null) => {
+      if (tNo !== null && !insertedDrawnTurns.has(tNo)) {
+        const dCards = getHandCards(drawnHands, tNo);
+        if (dCards.length > 0) {
+          enriched.push(`[Mão Comprada - Turno ${tNo}]: ${dCards.join(', ')}`);
+          insertedDrawnTurns.add(tNo);
+        }
+      }
+    };
+
+    for (let i = 0; i < parsedLogs.length; i++) {
+      const line = parsedLogs[i];
       const match = line.match(/Turn\s+(\d+)/i);
       if (match) {
         const turnNo = parseInt(match[1], 10);
-        if (!insertedTurns.has(turnNo)) {
-          const cards = hands instanceof Map ? hands.get(turnNo) : (hands as any)[turnNo];
-          if (cards && cards.length > 0) {
-            const cleanCards = cards.filter(
-              (c: string) =>
-                !isEquipmentOrWeapon(c) &&
-                !c.toLowerCase().includes('back') &&
-                !c.toLowerCase().includes('hero')
-            );
-            if (cleanCards.length > 0) {
-              enriched.push(`[Mão Comprada - Turno ${turnNo}]: ${cleanCards.join(', ')}`);
-              insertedTurns.add(turnNo);
+        if (currentTurnNum !== null && currentTurnNum !== turnNo) {
+          flushDrawnHand(currentTurnNum);
+        }
+        currentTurnNum = turnNo;
+
+        enriched.push(line);
+
+        if (!insertedStartTurns.has(turnNo)) {
+          if (startHands) {
+            const sCards = getHandCards(startHands, turnNo);
+            if (sCards.length > 0) {
+              const label = turnNo === 0 ? `[Mão Inicial - Turno 0]` : `[Cartas na Mão - Turno ${turnNo}]`;
+              enriched.push(`${label}: ${sCards.join(', ')}`);
+              insertedStartTurns.add(turnNo);
+            }
+          } else if (legacyHands) {
+            const lCards = getHandCards(legacyHands, turnNo);
+            if (lCards.length > 0) {
+              const label = turnNo === 0 ? `[Mão Inicial - Turno 0]` : `[Mão Comprada - Turno ${turnNo}]`;
+              enriched.push(`${label}: ${lCards.join(', ')}`);
+              insertedStartTurns.add(turnNo);
             }
           }
         }
+      } else {
+        enriched.push(line);
       }
     }
+
+    if (currentTurnNum !== null) {
+      flushDrawnHand(currentTurnNum);
+    }
+
     rawLogs = enriched;
   }
 
@@ -1806,5 +1840,6 @@ export function extractMatchRecordFromDom(
     format: 'CC',
     wentFirst,
     platform: 'Talishar',
+    activeChainLinks: options?.activeChainLinks,
   };
 }

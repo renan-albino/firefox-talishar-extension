@@ -21,6 +21,9 @@ export function formatTalisharCardName(input: string): string {
   // Strip instance index e.g. "-1", "-2"
   clean = clean.replace(/-\d+$/, '');
 
+  // Strip weapon slot suffix (e.g. "_r", "_l", "-r", "-l", "_sub" for right/left weapon in Talishar)
+  clean = clean.replace(/[-_](?:[rl]|sub)$/i, '');
+
   // Detect pitch suffix: _red, _yellow, _blue
   let pitchSuffix = '';
   if (clean.endsWith('_red')) {
@@ -157,18 +160,87 @@ export function trackLobbyDeckState(doc: Document = document): DeckAdjustment {
     });
   });
 
+  const equippedItems = trackLobbyEquipment(doc);
+
   const adjustment: DeckAdjustment = {
     cardsLeftOut,
     cardsAdded,
     mainDeckCount,
+    equippedItems: equippedItems.length > 0 ? equippedItems : undefined,
   };
 
-  // Persist immediately if main deck cards were found or sideboard cards were detected
-  if (mainDeckCount > 0 || cardsLeftOut.length > 0) {
+  // Persist immediately if main deck cards were found or sideboard cards/equipment were detected
+  if (mainDeckCount > 0 || cardsLeftOut.length > 0 || (equippedItems && equippedItems.length > 0)) {
     saveSideboardToStorage(adjustment);
   }
 
   return adjustment;
+}
+
+/**
+ * Extracts equipped cards from the lobby/sideboard stage.
+ * In Talishar, equipment is chosen via checked radio buttons (head, chest, arms, legs)
+ * and checked checkboxes (weapons), or shown in the loadout panel.
+ */
+export function trackLobbyEquipment(doc: Document = document): string[] {
+  const equipped: string[] = [];
+
+  const addEquip = (name: string) => {
+    if (!name || name === 'NONE00') return;
+    const clean = formatTalisharCardName(name);
+    if (
+      clean &&
+      clean !== 'NONE00' &&
+      !clean.toLowerCase().includes('hero') &&
+      !clean.toLowerCase().includes('token') &&
+      !clean.toLowerCase().includes('portrait') &&
+      !equipped.includes(clean)
+    ) {
+      equipped.push(clean);
+    }
+  };
+
+  // 1. Checked equipment radio buttons (Head, Chest, Arms, Legs)
+  const checkedRadios = Array.from(
+    doc.querySelectorAll<HTMLInputElement>(
+      '[class*="eqCategory"] input[type="radio"]:checked, [class*="categoryContainer"] input[type="radio"]:checked, [class*="equipmentContainer"] input[type="radio"]:checked, input[type="radio"][name="head"]:checked, input[type="radio"][name="chest"]:checked, input[type="radio"][name="arms"]:checked, input[type="radio"][name="legs"]:checked'
+    )
+  );
+  checkedRadios.forEach((radio) => {
+    const label = radio.closest('label') || radio.parentElement;
+    const img = label?.querySelector('img');
+    const val = radio.value || img?.getAttribute('alt') || img?.getAttribute('src') || '';
+    addEquip(img?.getAttribute('alt') || img?.getAttribute('src') || val);
+  });
+
+  // 2. Checked weapon checkboxes
+  const checkedWeapons = Array.from(
+    doc.querySelectorAll<HTMLInputElement>(
+      '[class*="eqCategory"] input[type="checkbox"]:checked, [class*="categoryContainer"] input[type="checkbox"]:checked, [class*="equipmentContainer"] input[type="checkbox"]:checked, input[type="checkbox"][name="weapon"]:checked, input[type="checkbox"][name="weapons"]:checked'
+    )
+  );
+  checkedWeapons.forEach((cb) => {
+    if (cb.getAttribute('name') === 'deck') return;
+    const label = cb.closest('label') || cb.parentElement;
+    const img = label?.querySelector('img');
+    const val = cb.value || img?.getAttribute('alt') || img?.getAttribute('src') || '';
+    addEquip(img?.getAttribute('alt') || img?.getAttribute('src') || val);
+  });
+
+  // 3. Fallback: inspect Loadout container images if inputs weren't directly found
+  if (equipped.length === 0) {
+    const loadoutImages = Array.from(
+      doc.querySelectorAll<HTMLImageElement>(
+        '[class*="Loadout_container"] img, [class*="loadout"] img, [class*="equippedCard"] img'
+      )
+    );
+    loadoutImages.forEach((img) => {
+      const raw = img.getAttribute('alt') || img.getAttribute('src') || '';
+      addEquip(raw);
+    });
+  }
+
+  return equipped;
 }
 
 /**

@@ -632,5 +632,74 @@ describe('talisharDom parser', () => {
     const wentFirst = parseWentFirst(logs, 'akiles185', 'TheLegend27');
     expect(wentFirst).toBe(false);
   });
+
+  it('should place [Mão Inicial - Turno 0] at Turn 0, [Cartas na Mão - Turno 1] at Turn 1 start, and [Mão Comprada - Turno 1] at Turn 1 end', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="ChatBox_chatBox__xyz">
+        <div class="chatContent">
+          <div class="ChatBox_chatMessage__1">Opponent played Grasp of the Arknight</div>
+          <div class="ChatBox_turnDivider__111">Turn 1 - akiles185</div>
+          <div class="ChatBox_chatMessage__2">akiles185 played Kiss of Death for 4</div>
+          <div class="ChatBox_turnDivider__111">Turn 2 - Opponent</div>
+          <div class="ChatBox_chatMessage__3">Opponent passed</div>
+        </div>
+      </div>
+    `;
+
+    const turnStartingHands = new Map<number, string[]>([
+      [0, ['Cut from the Same Cloth (r)', 'Savor Bloodshed (r)', 'Kiss of Death (r)', 'Cull (r)']],
+      [1, ['Cut from the Same Cloth (r)', 'Savor Bloodshed (r)', 'Kiss of Death (r)', 'Cull (r)']],
+    ]);
+    const turnDrawnHands = new Map<number, string[]>([
+      [1, ['Up Sticks And Run (r)', 'Reapers Call (b)', 'Shelter From The Storm (r)', 'Scar Tissue (r)']],
+    ]);
+
+    const record = extractMatchRecordFromDom(doc, { turnStartingHands, turnDrawnHands });
+    const logs = record.rawLogs || [];
+
+    // Turn 0 should have [Mão Inicial - Turno 0]
+    const turn0Idx = logs.findIndex((l) => l.includes('Turn 0'));
+    const start0Idx = logs.findIndex((l) => l.startsWith('[Mão Inicial - Turno 0]'));
+    expect(turn0Idx).toBeGreaterThan(-1);
+    expect(start0Idx).toBe(turn0Idx + 1);
+
+    // Turn 1 should start with [Cartas na Mão - Turno 1]
+    const turn1Idx = logs.findIndex((l) => l.includes('Turn 1'));
+    const start1Idx = logs.findIndex((l) => l.startsWith('[Cartas na Mão - Turno 1]'));
+    expect(start1Idx).toBe(turn1Idx + 1);
+
+    // End of Turn 1 (before Turn 2) should have [Mão Comprada - Turno 1]
+    const turn2Idx = logs.findIndex((l) => l.includes('Turn 2'));
+    const drawn1Idx = logs.findIndex((l) => l.startsWith('[Mão Comprada - Turno 1]'));
+    expect(drawn1Idx).toBeGreaterThan(start1Idx);
+    expect(drawn1Idx).toBeLessThan(turn2Idx);
+    expect(logs[drawn1Idx]).toContain('Up Sticks And Run (r), Reapers Call (b), Shelter From The Storm (r), Scar Tissue (r)');
+  });
+
+  it('should prefer initialPlayerEquipment from sideboard over in-game board additions', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `
+      <div class="GridBoard_pOneHead__123"><img alt="Mask Of Deceit" src="/head.png" /></div>
+      <div class="GridBoard_pOneChest__123"><img alt="Fyendals Spring Tunic" src="/tunic.png" /></div>
+      <div class="GridBoard_pOneHands__123"><img alt="Flick Knives" src="/gloves.png" /></div>
+      <div class="GridBoard_pOneLegs__123"><img alt="Stalkers Steps" src="/boots.png" /></div>
+      <div class="GridBoard_pOneWeaponRZone__123"><img alt="Hunters Klaive" src="/weapon1.png" /></div>
+      <div class="GridBoard_pOneWeaponLZone__123"><img alt="Graphene Chelicera" src="/transformed_weapon.png" /></div>
+    `;
+
+    // Sideboard confirmed initial equipment (does NOT include Graphene Chelicera)
+    const initialPlayerEquipment = [
+      'Mask Of Deceit',
+      'Fyendals Spring Tunic',
+      'Flick Knives',
+      'Stalkers Steps',
+      'Hunters Klaive',
+    ];
+
+    const record = extractMatchRecordFromDom(doc, { initialPlayerEquipment });
+    expect(record.playerEquipment).toEqual(initialPlayerEquipment);
+    expect(record.playerEquipment).not.toContain('Graphene Chelicera');
+  });
 });
 

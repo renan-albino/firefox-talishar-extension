@@ -153,4 +153,63 @@ describe('CsvFormatter (PT-BR Excel & Full Log)', () => {
     expect(fullLog).toContain('Widespread Annihilation (r)');
     expect(fullLog).toContain('(Poder: 6) — 5 de dano (1 bloqueado)');
   });
+
+  it('should correctly format Kiss of Death attack with live power, avoid non-attack chain links and not split on Flick Knives', () => {
+    const kissMatch: MatchRecord = {
+      ...sampleMatch,
+      player: { name: 'akiles185', hero: 'Arakni, Marionette' },
+      opponent: { name: 'Vandernesh', hero: 'Viserai, the Forsaken' },
+      activeChainLinks: [
+        { card: 'Kiss of Death', power: 16, defense: 15, turn: 1 },
+      ],
+      rawLogs: [
+        '--- Turn 1 - Arakni Marionette ---',
+        'Resolving play ability of Cut from the Same Cloth (r).',
+        '👁️‍🗨️Open the Gate to i\'Arathael (r), Deadwood Dirge (r), Murmuring Gloomblade (r), Shadowrealm Walker (r) are revealed',
+        'Resolving play ability of Savor Bloodshed (r).',
+        'Resolving play ability of Savor Bloodshed (r).',
+        '🎯Viserai, the Forsaken was chosen as the target.',
+        'Resolving play ability of Kiss of Death (r).',
+        'Viserai The Forsaken passed',
+        'Viserai The Forsaken blocked with Face Purgatory, Grasp of the Arknight, Open the Gate to i\'Arathael (r), Deadwood Dirge (r), Murmuring Gloomblade (r), and Shadowrealm Walker (r)',
+        'Arakni Marionette\'s Hunter\'s Klaive was targeted',
+        'Viserai The Forsaken\'s Viserai, the Forsaken was targeted',
+        'Resolving activated ability of Flick Knives.',
+        'Viserai The Forsaken is about to take 1 damage from Hunter\'s Klaive',
+        'Viserai The Forsaken took 1 damage',
+        'Processing hit effect for Hunter\'s Klaive',
+        '🎯Viserai The Forsaken is now marked!',
+        'Arakni Marionette passed (x2)',
+        'Viserai The Forsaken is about to take 1 damage from Kiss of Death (r)',
+        'Viserai The Forsaken took 1 damage',
+        'Combat resolved with a hit for 1 damage',
+        'Viserai The Forsaken loses their mark',
+        'Processing hit effect for Kiss of Death (r)',
+        'Viserai The Forsaken loses 1 life.',
+        'The chain link was resolved.',
+        'Arakni Marionette passed',
+        'The combat chain was closed.',
+        'Resolving play ability of Cull (r).',
+        'Pull from Beyond (b) was banished.',
+        'Persuasive Prognosis (b) was banished.',
+        'Resolving play ability of Orb-Weaver Spinneret (r).',
+        'Arakni Marionette passed (x2)',
+      ],
+    };
+
+    const fullLog = formatFullLogText(kissMatch);
+
+    // Should NOT have chain links for non-attacks
+    expect(fullLog).not.toContain('[Chain Link 1] Cut from the Same Cloth');
+    expect(fullLog).not.toContain('[Chain Link 2] Savor Bloodshed');
+    expect(fullLog).not.toContain('[Chain Link 2] Kiss of Death');
+    expect(fullLog).not.toContain('[Chain Link 3]');
+    expect(fullLog).not.toContain('[Chain Link 4]');
+
+    // Should have Kiss of Death as Chain Link 1 with power 16 and defense
+    expect(fullLog).toContain('[Chain Link 1] Kiss of Death (r) (Poder: 16) — 1 de dano (15 bloqueado)');
+
+    // Should NOT have empty [Chain Link] lines
+    expect(fullLog).not.toMatch(/^\[Chain Link \d+\]\s*$/m);
+  });
 });

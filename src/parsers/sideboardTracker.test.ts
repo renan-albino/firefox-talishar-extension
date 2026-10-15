@@ -14,11 +14,16 @@ describe('sideboardTracker', () => {
       expect(formatTalisharCardName('pummel_yellow')).toBe('Pummel (y)');
       expect(formatTalisharCardName('command_and_conquer_red')).toBe('Command And Conquer (r)');
       expect(formatTalisharCardName('dawnblade')).toBe('Dawnblade');
+      expect(formatTalisharCardName('hunters_klaive_r')).toBe('Hunters Klaive');
+      expect(formatTalisharCardName('harmonized_kodachi_l')).toBe('Harmonized Kodachi');
+      expect(formatTalisharCardName('cintari_saber-r')).toBe('Cintari Saber');
     });
 
     it('should format card image URLs', () => {
       const url = 'https://images.talishar.net/public/cardsquares/english/fate_foreseen_red.webp';
       expect(formatTalisharCardName(url)).toBe('Fate Foreseen (r)');
+      const weaponUrl = 'https://images.talishar.net/public/cardsquares/english/hunters_klaive_r.webp';
+      expect(formatTalisharCardName(weaponUrl)).toBe('Hunters Klaive');
     });
   });
 
@@ -76,6 +81,49 @@ describe('sideboardTracker', () => {
       expect(cards).toHaveLength(2);
       expect(cards).toContain('Unmovable (b)');
       expect(cards).toContain('Oasis Respite (r)');
+    });
+  });
+
+  describe('trackLobbyEquipment', () => {
+    it('should extract checked equipment and weapons from lobby DOM', () => {
+      const doc = document.implementation.createHTMLDocument();
+      doc.body.innerHTML = `
+        <div class="Equipment_container">
+          <div class="Equipment_categoryContainer">
+            <label>
+              <input type="radio" name="head" value="mask_of_deceit" checked />
+              <img src="/cards/mask_of_deceit.webp" alt="Mask of Deceit" />
+            </label>
+            <label>
+              <input type="radio" name="head" value="NONE00" />
+            </label>
+          </div>
+          <div class="Equipment_categoryContainer">
+            <label>
+              <input type="radio" name="chest" value="fyendals_spring_tunic" checked />
+              <img src="/cards/fyendals_spring_tunic.webp" alt="Fyendals Spring Tunic" />
+            </label>
+          </div>
+          <div class="Equipment_categoryContainer">
+            <label>
+              <input type="checkbox" name="weapons" value="hunters_klaive_r" checked />
+              <img src="/cards/hunters_klaive_r.webp" alt="Hunters Klaive" />
+            </label>
+            <label>
+              <input type="checkbox" name="weapons" value="graphene_chelicera" />
+              <img src="/cards/graphene_chelicera.webp" alt="Graphene Chelicera" />
+            </label>
+          </div>
+        </div>
+      `;
+
+      const adjustment = trackLobbyDeckState(doc);
+      expect(adjustment.equippedItems).toBeDefined();
+      expect(adjustment.equippedItems).toContain('Mask of Deceit');
+      expect(adjustment.equippedItems).toContain('Fyendals Spring Tunic');
+      expect(adjustment.equippedItems).toContain('Hunters Klaive');
+      expect(adjustment.equippedItems).not.toContain('Graphene Chelicera');
+      expect(adjustment.cardsLeftOut).toContain('Graphene Chelicera');
     });
   });
 });

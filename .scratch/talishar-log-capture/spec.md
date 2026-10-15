@@ -54,17 +54,32 @@ interface MatchRecord {
     name: string;
     hero: string;
     avgTurnValue?: number;
+    fatigue?: number;
+    maxDamage?: number;
+    maxDamageTurn?: number;
   };
   opponent: {
     name: string;
     hero: string;
     avgTurnValue?: number;
+    fatigue?: number;
+    maxDamage?: number;
+    maxDamageTurn?: number;
   };
   result: 'win' | 'loss' | 'draw' | 'unknown';
   turnsCount: number;
-  sideboardCards: string[]; // Cards left out or swapped
+  wentFirst?: boolean;
+  sideboardCards?: string[]; // Cards left out or swapped
+  playerEquipment?: string[];
+  opponentEquipment?: string[];
   notes: string;
-  logSummary?: string;
+  rawLogs?: string[];
+  activeChainLinks?: Array<{
+    card: string;
+    power: number;
+    defense?: number;
+    turn?: number;
+  }>;
 }
 ```
 
@@ -76,10 +91,10 @@ interface MatchRecord {
 ## Testing Decisions
 
 - **Testing Seams**:
-  - Seam 1: `CsvFormatter` tests verifying CSV escaping, PT-BR BOM header, semicolon delimiters, and empty notes handling.
-  - Seam 2: `TalisharParser` tests running against mock HTML snapshots of Talishar game boards, extracting players, heroes, combat log items, and average turn values.
+  - Seam 1: `CsvFormatter` tests verifying CSV escaping, PT-BR BOM header, semicolon delimiters, empty notes handling, and active chain link power enrichment.
+  - Seam 2: `TalisharParser` tests running against mock HTML snapshots of Talishar game boards, extracting players, heroes, combat log items, average turn values, hands per turn, and initial equipment filtering.
   - Seam 3: `SheetsClient` tests verifying JSON payload structure, error handling, and timeout behavior.
-  - Seam 4: `DeckAdjustmentTracker` tests verifying deck size calculation and sideboard diffing.
+  - Seam 4: `DeckAdjustmentTracker` tests verifying deck size calculation, equipment tracking, and sideboard diffing.
 - **Tools**: Vitest for fast, isolated unit and integration testing without launching browser instances for pure domain modules.
 
 ## Out of Scope

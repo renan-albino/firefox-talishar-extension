@@ -561,6 +561,22 @@ export const NON_ATTACK_CARDS = new Set([
   'this rounds on me',
   'hold the line',
   'chaff parade',
+  'cut from the same cloth',
+  'savor bloodshed',
+  'cull',
+  'orb weaver spinneret',
+  'orb-weaver spinneret',
+  'up sticks and run',
+  'shelter from the storm',
+  'persuasive prognosis',
+  'flick knives',
+  'runechant of sloth',
+  'gate to iarathael',
+  "gate to i'arathael",
+  'seven sin nebula',
+  'mask of deceit',
+  'stalkers steps',
+  "stalker's steps",
 ]);
 
 export const FAB_CARD_DEFENSE: Record<string, number> = {
@@ -628,6 +644,41 @@ export const FAB_CARD_DEFENSE: Record<string, number> = {
   'blessing of bellona': 2,
   'prayer of bellona': 2,
   'tenacity': 2,
+
+  // Assassin / Runeblade / Shadow additions
+  'open the gate to iarathael': 3,
+  "open the gate to i'arathael": 3,
+  'murmuring gloomblade': 3,
+  'shadowrealm walker': 3,
+  'kiss of death': 3,
+  'up sticks and run': 2,
+  'shelter from the storm': 3,
+  'scar tissue': 3,
+  'reapers call': 3,
+  "reaper's call": 3,
+  'leave no witnesses': 3,
+  'unmake the underlings': 3,
+  'orb weaver spinneret': 2,
+  'orb-weaver spinneret': 2,
+  'savor bloodshed': 2,
+  'cut from the same cloth': 2,
+  'art of desire body': 2,
+  'mark of the black widow': 2,
+  'meet madness': 2,
+  'pick up the point': 2,
+  'schism of chaos': 3,
+  'take up the mantle': 3,
+  'seven sin nebula': 0,
+  'flick knives': 0,
+  'stalkers steps': 1,
+  "stalker's steps": 1,
+  'mask of deceit': 0,
+  'hunters klaive': 0,
+  "hunter's klaive": 0,
+  'graphene chelicera': 0,
+  'pull from beyond': 3,
+  'enshrine sin': 3,
+  'arknight descendancy': 3,
 };
 
 /**
@@ -635,27 +686,102 @@ export const FAB_CARD_DEFENSE: Record<string, number> = {
  */
 export function enrichChainLinksWithDamage(
   lines: string[],
-  pitchMap?: Map<string, 'r' | 'y' | 'b'>
+  pitchMap?: Map<string, 'r' | 'y' | 'b'>,
+  activeChainLinks?: Array<{ card: string; power: number; defense?: number; turn?: number }>
 ): string[] {
   const result: string[] = [];
+  let chainCounter = 0;
+  let activeLinkOpen = false;
+
+  const isCombatSignal = (s: string) =>
+    /(?:blocked with|defended with|blocked for|is about to take \d+ damage|took \d+ damage|Combat resolved|hit effect for|The chain link was resolved)/i.test(s);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const chainMatch = line.match(/^(?:\[?Chain Link\s*(\d+)\]?)/i);
+
+    // Reset chain counter on turn change or combat chain closed
+    if (/^---?\s*Turn/i.test(line) || /The combat chain was closed/i.test(line)) {
+      chainCounter = 0;
+      activeLinkOpen = false;
+      result.push(line);
+      continue;
+    }
+
+    if (/The chain link was resolved/i.test(line)) {
+      activeLinkOpen = false;
+      result.push(line);
+      continue;
+    }
+
+    const chainMatch = line.match(/^(?:\[?Chain Link\s*(\d+)\]?)\s*(.*)/i);
+    let playCardCand = '';
+    if (!chainMatch) {
+      const match1 = line.match(
+        /^([A-Za-z0-9_,\s.'-]+?)\s+(?:played|activated|attacks?\s+with|attacked?\s+with)\s+(.+?)(?:\s+from\s+arsenal|\s+for\s+\d+|$)/i
+      );
+      const match2 = line.match(/Resolving\s+(?:play|activated)\s+ability\s+of\s+(.+?)(?:\.|$)/i);
+      if (match1) {
+        playCardCand = match1[2].trim();
+      } else if (match2) {
+        playCardCand = match2[1].trim();
+      }
+    }
+
+    let isAttackStart = false;
+    let explicitAttackCard = '';
 
     if (chainMatch) {
-      const linkNum = chainMatch[1];
-      let attackCard = '';
+      const linkNum = parseInt(chainMatch[1], 10);
+      explicitAttackCard = chainMatch[2]?.trim() || '';
+      // Skip bare [Chain Link X] only if it's a duplicate of current/past link inside an open attack
+      if (!explicitAttackCard && activeLinkOpen && linkNum <= chainCounter) {
+        continue;
+      }
+      isAttackStart = true;
+    } else if (playCardCand && !activeLinkOpen) {
+      const cardClean = playCardCand.replace(/\s*\([ryb]\)$/i, '').replace(/['']/g, '').trim().toLowerCase();
+      if (
+        !cardClean.includes('ability') &&
+        !cardClean.includes('pass') &&
+        !NON_ATTACK_CARDS.has(cardClean)
+      ) {
+        for (let k = i + 1; k < Math.min(lines.length, i + 15); k++) {
+          const ahead = lines[k];
+          if (/^---?\s*Turn/i.test(ahead) || (/played\b|activated\b/i.test(ahead) && !/Flick Knives/i.test(ahead))) {
+            if (isCombatSignal(ahead)) {
+              isAttackStart = true;
+            }
+            break;
+          }
+          if (isCombatSignal(ahead)) {
+            isAttackStart = true;
+            break;
+          }
+        }
+        if (isAttackStart) {
+          explicitAttackCard = playCardCand;
+        }
+      }
+    }
+
+    if (isAttackStart) {
+      const linkNum = chainMatch ? chainMatch[1] : String(chainCounter + 1);
+      chainCounter = parseInt(linkNum, 10);
+      activeLinkOpen = true;
+
+      let attackCard = explicitAttackCard;
       let damageValue: number | undefined;
       let blockedDefense = 0;
       let explicitPower: number | undefined;
       let hasBlock = false;
 
-      // Look ahead up to 18 lines for the attack resolution
-      for (let j = i + 1; j < Math.min(lines.length, i + 18); j++) {
+      // Look ahead up to 20 lines for the attack resolution
+      for (let j = i + (chainMatch ? 1 : 0); j < Math.min(lines.length, i + 20); j++) {
         const nextLine = lines[j];
         if (
-          /^(?:\[?Chain Link\s*\d+|The combat chain was closed|--- Turn)/i.test(nextLine)
+          j > i &&
+          (/The combat chain was closed|--- Turn/i.test(nextLine) ||
+            /^(?:\[?Chain Link\s*\d+)/i.test(nextLine))
         ) {
           break;
         }
@@ -677,7 +803,6 @@ export function enrichChainLinksWithDamage(
           damageValue = parseInt(combatHitMatch[1], 10);
         }
 
-        // Only consider generic took damage if not from Runechant/arcane
         const tookDmgMatch = nextLine.match(/took\s*(\d+)\s*damage/i);
         if (tookDmgMatch && damageValue === undefined) {
           const prevLine = j > 0 ? lines[j - 1] : '';
@@ -697,7 +822,7 @@ export function enrichChainLinksWithDamage(
             const cardsStr = matchWith[1];
             const parts = cardsStr.split(/\s+and\s+|,\s*/i);
             for (const c of parts) {
-              const cClean = c.replace(/\s*\([ryb]\)$/i, '').trim().toLowerCase();
+              const cClean = c.replace(/\s*\([ryb]\)$/i, '').replace(/['']/g, '').trim().toLowerCase();
               if (FAB_CARD_DEFENSE[cClean] !== undefined) {
                 blockedDefense += FAB_CARD_DEFENSE[cClean];
               }
@@ -721,17 +846,22 @@ export function enrichChainLinksWithDamage(
           const playedMatch = nextLine.match(
             /(?:played|activated)\s+(?!ability\b|Ser Boltyn|Levia|Bravo|Kayo|Dorinthea)(.+?)(?:\s+from\s+arsenal|\s+for\s+\d+|$)/i
           );
-          if (playedMatch) {
-            const candidate = playedMatch[1].trim();
-            const lowerCand = candidate.toLowerCase();
+          const resolvingMatch = nextLine.match(/Resolving\s+(?:play|activated)\s+ability\s+of\s+(.+?)(?:\.|$)/i);
+          const cand = playedMatch ? playedMatch[1].trim() : resolvingMatch ? resolvingMatch[1].trim() : '';
+          if (cand) {
+            const lowerCand = cand.toLowerCase().replace(/\s*\([ryb]\)$/i, '').replace(/['']/g, '').trim();
             if (
               !lowerCand.includes('ability') &&
               !lowerCand.includes('pass') &&
               !NON_ATTACK_CARDS.has(lowerCand)
             ) {
-              attackCard = candidate;
+              attackCard = cand;
             }
           }
+        }
+
+        if (/The chain link was resolved/i.test(nextLine)) {
+          break;
         }
       }
 
@@ -740,6 +870,21 @@ export function enrichChainLinksWithDamage(
       }
 
       let totalPower: number | undefined = explicitPower;
+
+      // If activeChainLinks captured live power from [data-testid="attack-value"], use it!
+      if (activeChainLinks && attackCard) {
+        const cleanCard = attackCard.toLowerCase().replace(/\s*\([ryb]\)$/i, '').replace(/['']/g, '').trim();
+        const stat = activeChainLinks.find(
+          (s) => s.card.toLowerCase().replace(/\s*\([ryb]\)$/i, '').replace(/['']/g, '').trim() === cleanCard
+        );
+        if (stat && stat.power !== undefined) {
+          totalPower = stat.power;
+          if (stat.defense !== undefined && (blockedDefense === 0 || stat.defense > blockedDefense)) {
+            blockedDefense = stat.defense;
+          }
+        }
+      }
+
       if (totalPower === undefined && damageValue !== undefined) {
         if (damageValue > 0) {
           totalPower = damageValue + (blockedDefense > 0 ? blockedDefense : 0);
@@ -756,11 +901,10 @@ export function enrichChainLinksWithDamage(
         }
       }
 
-      let formattedHeader = `[Chain Link ${linkNum}]`;
       if (attackCard) {
         const powerDesc = totalPower !== undefined ? ` (Poder: ${totalPower})` : '';
+        let dmgDesc = '';
         if (damageValue !== undefined) {
-          let dmgDesc = '';
           if (damageValue > 0) {
             dmgDesc = blockedDefense > 0
               ? `${damageValue} de dano (${blockedDefense} bloqueado)`
@@ -770,13 +914,21 @@ export function enrichChainLinksWithDamage(
               ? `0 de dano (bloqueado por ${blockedDefense})`
               : '0 de dano (bloqueado)';
           }
-          formattedHeader = `[Chain Link ${linkNum}] ${attackCard}${powerDesc} — ${dmgDesc}`;
+          result.push(`[Chain Link ${linkNum}] ${attackCard}${powerDesc} — ${dmgDesc}`);
         } else {
-          formattedHeader = `[Chain Link ${linkNum}] ${attackCard}${powerDesc}`;
+          result.push(`[Chain Link ${linkNum}] ${attackCard}${powerDesc}`);
+        }
+        if (!chainMatch) {
+          result.push(line);
+        }
+      } else {
+        // If no attack card was found, don't output an empty [Chain Link X]!
+        if (chainMatch && chainMatch[2]?.trim()) {
+          result.push(chainMatch[2].trim());
+        } else if (!chainMatch) {
+          result.push(line);
         }
       }
-
-      result.push(formattedHeader);
     } else {
       result.push(line);
     }
@@ -852,7 +1004,7 @@ export function formatFullLogText(match: MatchRecord): string {
   const pitchDecoratedLogs = rawLogs.map((l) => decorateLineWithPitches(l, pitchMap));
 
   // Enrich chain link headers with attack card and damage
-  const chainEnrichedLogs = enrichChainLinksWithDamage(pitchDecoratedLogs, pitchMap);
+  const chainEnrichedLogs = enrichChainLinksWithDamage(pitchDecoratedLogs, pitchMap, match.activeChainLinks);
 
   const formattedLines: string[] = [];
   chainEnrichedLogs.forEach((line) => {
